@@ -1,7 +1,7 @@
 all:
-	ocamlbuild -use-menhir main.native
+	corebuild -use-menhir main.native
 
 clean:
-	ocamlbuild -clean
+	corebuild -clean
 
 .PHONY: all clean

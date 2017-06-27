@@ -9,6 +9,8 @@
  * Shawn Otis 
  *)
 
+open Core.Std
+
 open Printf
 open Lexing
 open Pretty
@@ -56,7 +58,7 @@ let get_op_mode (args: string array) : op_mode =
   (* Ignore first argument which is the executable name *)
   let args' = Array.sub args 1 (Array.length args - 1) in
   let default_op_mode = Compile (None, default_output_mode) in
-  Array.fold_left process_arg default_op_mode args'
+  Array.fold args' ~init:default_op_mode ~f:process_arg
 
 let () = try
     match get_op_mode Sys.argv with
@@ -69,28 +71,28 @@ let () = try
         if out_mode.symtbl_dump then Check.SymTbl.clear_file ();
         let lexbuf = Lexing.from_channel (open_in fname) in
         lexbuf.lex_curr_p <- {lexbuf.lex_curr_p with pos_fname = fname};
-        let p = Parser.prog Lexer.token lexbuf in 
+        let p = Goparse.prog Golex.token lexbuf in 
         let weeded_one = Weeder.ForSwitchWeeding.weed p in
         (if out_mode.pp_mode = PP_no_types then
-          let oc = open_out (String.sub fname 0 (String.rindex fname '.') ^ ".pretty.go") in
+          let oc = open_out (String.sub fname 0 (String.rindex_exn fname '.') ^ ".pretty.go") in
           fprintf oc "%s" (Pretty.pretty weeded_one));
         Check.check_prog weeded_one;
         let weeded_two = Weeder.ReturnWeeding.weed weeded_one; weeded_one in
         (if out_mode.pp_mode = PP_with_types then
-           let oc' = open_out (String.sub fname 0 (String.rindex fname '.') ^ ".pptype.go") in
+           let oc' = open_out (String.sub fname 0 (String.rindex_exn fname '.') ^ ".pptype.go") in
            fprintf oc' "%s" (Pretty.pretty weeded_two));
         (if out_mode.c_gen then
-           let oc' = open_out (String.sub fname 0 (String.rindex fname '.') ^ ".c") in
+           let oc' = open_out (String.sub fname 0 (String.rindex_exn fname '.') ^ ".c") in
            fprintf oc' "%s" (Codegen.gen_prog weeded_two));
         flush stdout
       end
   with
-  | Lexer.LexerError msg -> fprintf stderr "Lexer error: %s\n" msg
-  | Parser.Error -> fprintf stderr "Syntax error.\n"
-  | E.ParsingError (s, p) ->
+  | Golex.LexerError msg -> fprintf stderr "Lexer error: %s\n" msg
+  | Goparse.Error -> fprintf stderr "Syntax error.\n"
+  (*)| E.ParsingError (s, p) ->
       let string_of_pos pos = sprintf "%s:%d:%d" pos.pos_fname pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1) in
       fprintf stderr "%s\n" (string_of_pos p ^ ": error: " ^ s)
-  | E.Error s -> fprintf stderr "Error: %s\n" s
+  | E.Error s -> fprintf stderr "Error: %s\n" s*)
   | Weeder.WeedError s -> fprintf stderr "error: %s\n" s
   | Check.TypeError s -> fprintf stderr "Type error: %s\n" s
   | Check.DeclError s -> fprintf stderr "Decl error: %s\n" s

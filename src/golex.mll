@@ -11,7 +11,7 @@
 
 {
 open Lexing
-open Parser
+open Goparse
 
 exception LexerError of string
 exception ParsingError of string * Lexing.position
