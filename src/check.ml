@@ -26,62 +26,66 @@ let set (r : 'a option ref) (v : 'a) : 'a = r := Some v; v
 
 module SymTbl = struct
 
-  let dump = ref false
-  let filename = ref ""
+  open Core.Std
+      
+  type symtbl = (string, tp_or_id) Hashtbl.t
 
-  exception Found of tp_or_id (* for search in symtable stack with early exit *)
+  (* Indicates whether to dump symbol table information: if so, includes base file name *)
+  let dump : string option ref = ref None
 
-  let line_of_pos pos = sprintf "Scope that begins on line %d" pos.pos_lnum
+  let string_of_symtbl (tbl : symtbl) : string =
+    let bindings = Hashtbl.to_alist tbl in
+    let string_of_entry (k, v) = match v with
+      | Tp t | Id t | Fn t -> k ^ " -> " ^ pretty_tp t Zero in
+    let string_bindings = List.map bindings string_of_entry in
+    (String.concat ~sep:"\n" string_bindings) ^ "\n"
 
-  let clear_file () = 
-    let filename' = String.sub !filename 0 (String.rindex !filename '.') ^ ".symtab" in
-    let oc = open_out_gen [Open_creat; Open_trunc] 0o666 filename'
-    in close_out oc
-
-	(* Create the symbol table stack and related functions *)
-  let string_of_entry k v = match v with
-    | Tp t | Id t | Fn t -> k ^ " -> " ^ pretty_tp t Zero
-
-  let print_to_file pos s = 
-    let filename' = String.sub !filename 0 (String.rindex !filename '.') ^ ".symtab" in
-    let oc = open_out_gen [Open_append] 0o666 filename' in
-      fprintf oc "%s\n%s\n\n" (line_of_pos pos) s;
+  let dump_symtbl (pos : position) (tbl : symtbl) : unit =
+    match !dump with
+    | None -> ()
+    | Some basename ->
+      let filename = basename ^ ".symtab" in
+      let oc = open_out_gen [Open_append] 0o666 filename in
+      let pos_line = sprintf "Scope that begins on line %d\n" pos.pos_lnum in
+      fprintf oc "%s%s\n" pos_line (string_of_symtbl tbl);
       close_out oc
 
-	let symTblStack = Stack.create ()
+  let get_symtbl_fname_exn () : string =
+    match !dump with
+    | None -> failwith "No file name given to dump symbol table"
+    | Some basename -> basename ^ ".symtab"
 
-	let enter_scope () : unit = Stack.push (Hashtbl.create 0) symTblStack
+  let clear_file () = 
+    let filename = get_symtbl_fname_exn () in
+    let oc = open_out_gen [Open_creat; Open_trunc] 0o666 filename in
+    close_out oc
 
-	let exit_scope pos : unit =
-    try     
-      let tbl = Stack.pop symTblStack in 
-        if (!dump) then
-          let l = Hashtbl.fold (fun k v acc -> (k,v)::acc) tbl [] in
-          print_to_file pos (String.concat "\n" (List.map (fun (k, v) -> string_of_entry k v) l))
-        else ()
-    with Stack.Empty -> raise (InternalError "Tried to exit global scope.")
+  let symTblStack : (string, tp_or_id) Hashtbl.t Stack.t = Stack.create ()
 
-	let add (name : id) (ti : tp_or_id) : unit =
-    if Hashtbl.mem (Stack.top symTblStack) name then
-      raise (DeclError (name ^ " is already declared in the current scope."))
-    else
-      try Hashtbl.add (Stack.top symTblStack) name ti
-      with Stack.Empty -> raise (InternalError "Tried to add binding to empty symbol table stack.")
+  let enter_scope () : unit = Stack.push symTblStack (String.Table.create ())
 
-  let get_curr (name : id) : tp_or_id option = 
-    try Some (Hashtbl.find (Stack.top symTblStack) name)
-    with Not_found -> None
+  let exit_scope pos : unit =
+    match Stack.pop symTblStack with
+    | None -> raise (InternalError "Tried to exit global scope.")
+    | Some tbl -> dump_symtbl pos tbl
 
-	let get (name : id) : tp_or_id option =
-    let get_in_symtbl st =
-      try let t = Hashtbl.find st name in 
-        raise (Found t)
-      with Not_found -> () in
-    try Stack.iter get_in_symtbl symTblStack; None
-    with Found t -> Some t
+  let add (name : id) (ti : tp_or_id) : unit =
+    match Stack.top symTblStack with
+    | None -> raise (InternalError "Tried to add binding with empty symbol table stack.")
+    | Some tbl -> Hashtbl.change tbl name (function
+        | None -> Some ti
+        | Some _ -> raise (DeclError (name ^ " is already declared in the current scope.")))
+
+  let get_curr (name : id) : tp_or_id option =
+    match Stack.top symTblStack with
+    | None -> raise (InternalError "Tried to look up binding with empty symbol table stack.")
+    | Some tbl -> Hashtbl.find tbl name
+
+  let get (name : id) : tp_or_id option =
+    Stack.find_map symTblStack (fun tbl -> Hashtbl.find tbl name)
 
   (* Open universe block *)
-  let _ = Stack.push (Hashtbl.create 0) symTblStack
+  let _ = enter_scope ()
 
   (* Add predeclared identifiers *)
   (* Types *)
@@ -94,15 +98,6 @@ module SymTbl = struct
   let _ = add "true" (Id Bool)
   let _ = add "false" (Id Bool)
 
-
-(*
-	let top = Stack.top symTblStack
-	let clear () = Stack.clear symTblStack
-	let copy = Stack.copy symTblStack
-	let is_empty = Stack.is_empty symTblStack
-	let length = Stack.length symTblStack
-	let iter f = Stack.iter f symTblStack
-*)
 end
 
 let rec inner_tp (t : tp) : (tp option) = match t with

@@ -44,7 +44,7 @@ let process_arg (mode : op_mode) (arg : string) : op_mode =
     | Compile (fname, out_mode), "-pptype" ->
         Compile (fname, {out_mode with pp_mode = PP_with_types})
     | Compile (fname, out_mode), "-dumpsymtab" ->
-        Compile (fname, {out_mode with symtbl_dump = false})
+        Compile (fname, {out_mode with symtbl_dump = true})
     | Compile (fname, out_mode), "-nocompile" ->
         Compile (fname, {out_mode with c_gen = false})
     | _ -> failwith "Invalid combination of flags"
@@ -72,13 +72,13 @@ let () = try
     | Info Version -> fprintf stdout "Group15 GoLite v1 -> C11 Compiler v1\n"
     | Compile (None, _) -> failwith "No input file to compile"
     | Compile (Some fname, out_mode) -> begin
-        Check.SymTbl.filename := fname;
-        if out_mode.symtbl_dump then Check.SymTbl.clear_file ();
+        let basename = go_basename_exn fname in
+        if out_mode.symtbl_dump then
+          (Check.SymTbl.dump := Some basename; Check.SymTbl.clear_file ());
         let lexbuf = Lexing.from_channel (open_in fname) in
         lexbuf.lex_curr_p <- {lexbuf.lex_curr_p with pos_fname = fname};
         let p = Goparse.prog Golex.token lexbuf in 
         let weeded_one = Weeder.ForSwitchWeeding.weed p in
-        let basename = go_basename_exn fname in
         (if out_mode.pp_mode = PP_no_types then
           let oc = open_out (basename ^ ".pretty.go") in
           fprintf oc "%s" (Pretty.pretty weeded_one));
