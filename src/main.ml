@@ -56,9 +56,9 @@ let process_arg (mode : op_mode) (arg : string) : op_mode =
 
 let get_op_mode (args: string array) : op_mode =
   (* Ignore first argument which is the executable name *)
-  let args' = Array.sub args 1 (Array.length args - 1) in
+  let args = Array.subo args ~pos:1 in
   let default_op_mode = Compile (None, default_output_mode) in
-  Array.fold args' ~init:default_op_mode ~f:process_arg
+  Array.fold args ~init:default_op_mode ~f:process_arg
 
 let go_basename_exn (go_fname : string) : string =
   match String.chop_suffix go_fname ~suffix:".go" with
