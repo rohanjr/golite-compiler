@@ -40,7 +40,7 @@ module SymTbl = struct
     let string_bindings = List.map bindings string_of_entry in
     (String.concat ~sep:"\n" string_bindings) ^ "\n"
 
-  let dump_symtbl (pos : position) (tbl : symtbl) : unit =
+  let maybe_dump_symtbl (pos : position) (tbl : symtbl) : unit =
     match !dump with
     | None -> ()
     | Some basename ->
@@ -50,15 +50,13 @@ module SymTbl = struct
       fprintf oc "%s%s\n" pos_line (string_of_symtbl tbl);
       close_out oc
 
-  let get_symtbl_fname_exn () : string =
+  let maybe_clear_file () = 
     match !dump with
-    | None -> failwith "No file name given to dump symbol table"
-    | Some basename -> basename ^ ".symtab"
-
-  let clear_file () = 
-    let filename = get_symtbl_fname_exn () in
-    let oc = open_out_gen [Open_creat; Open_trunc] 0o666 filename in
-    close_out oc
+    | None -> ()
+    | Some basename ->
+      let filename = basename ^ ".symtab" in
+      let oc = open_out_gen [Open_creat; Open_trunc] 0o666 filename in
+      close_out oc
 
   let symTblStack : (string, tp_or_id) Hashtbl.t Stack.t = Stack.create ()
 
@@ -67,7 +65,7 @@ module SymTbl = struct
   let exit_scope pos : unit =
     match Stack.pop symTblStack with
     | None -> raise (InternalError "Tried to exit global scope.")
-    | Some tbl -> dump_symtbl pos tbl
+    | Some tbl -> maybe_dump_symtbl pos tbl
 
   let add (name : id) (ti : tp_or_id) : unit =
     match Stack.top symTblStack with
@@ -84,19 +82,24 @@ module SymTbl = struct
   let get (name : id) : tp_or_id option =
     Stack.find_map symTblStack (fun tbl -> Hashtbl.find tbl name)
 
-  (* Open universe block *)
-  let _ = enter_scope ()
-
   (* Add predeclared identifiers *)
-  (* Types *)
-  let _ = add "int" (Tp Int)
-  let _ = add "float64" (Tp Float64)
-  let _ = add "bool" (Tp Bool)
-  let _ = add "rune" (Tp Rune)
-  let _ = add "string" (Tp String)
-  (* Constants *)
-  let _ = add "true" (Id Bool)
-  let _ = add "false" (Id Bool)
+  let add_primitives () =
+    (* Types *)
+    add "int" (Tp Int);
+    add "float64" (Tp Float64);
+    add "bool" (Tp Bool);
+    add "rune" (Tp Rune);
+    add "string" (Tp String);
+    (* Constants *)
+    add "true" (Id Bool);
+    add "false" (Id Bool)
+
+  (* Open universe block *)
+  let init (dump_option : string option) =
+    dump := dump_option;
+    maybe_clear_file ();
+    enter_scope ();
+    add_primitives ()
 
 end
 

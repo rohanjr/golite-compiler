@@ -73,8 +73,8 @@ let () = try
     | Compile (None, _) -> failwith "No input file to compile"
     | Compile (Some fname, out_mode) -> begin
         let basename = go_basename_exn fname in
-        if out_mode.symtbl_dump then
-          (Check.SymTbl.dump := Some basename; Check.SymTbl.clear_file ());
+        let dump_option = if out_mode.symtbl_dump then Some basename else None in
+        Check.SymTbl.init dump_option;
         let lexbuf = Lexing.from_channel (open_in fname) in
         lexbuf.lex_curr_p <- {lexbuf.lex_curr_p with pos_fname = fname};
         let p = Goparse.prog Golex.token lexbuf in 
