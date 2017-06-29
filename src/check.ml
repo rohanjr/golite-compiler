@@ -192,10 +192,11 @@ let rec integer : tp -> bool = function
   | _ -> false
 
 (* Typechecking *)
-let rec check_prog : prog -> unit = function
-  Prog (pos, p, dl) -> List.iter check_topleveldecl dl;
-  (* At the very end, exit the universal scope to dump the final symbol table *)
-  SymTbl.exit_scope pos
+let rec check_prog (dump_option : string option): prog -> unit = function
+    Prog (pos, p, dl) ->
+    SymTbl.init dump_option; (* open global scope with predeclared identifiers *)
+    List.iter check_topleveldecl dl;
+    SymTbl.exit_scope pos (* exit global scope and maybe dump the final symbol table *)
 
 and check_topleveldecl : topleveldecl -> unit = function
   | FuncDecl (pos, i, vslo, tpo, sl) ->

@@ -73,8 +73,6 @@ let () = try
     | Compile (None, _) -> failwith "No input file to compile"
     | Compile (Some fname, out_mode) -> begin
         let basename = go_basename_exn fname in
-        let dump_option = if out_mode.symtbl_dump then Some basename else None in
-        Check.SymTbl.init dump_option;
         let lexbuf = Lexing.from_channel (open_in fname) in
         lexbuf.lex_curr_p <- {lexbuf.lex_curr_p with pos_fname = fname};
         let p = Goparse.prog Golex.token lexbuf in 
@@ -82,7 +80,8 @@ let () = try
         (if out_mode.pp_mode = PP_no_types then
           let oc = open_out (basename ^ ".pretty.go") in
           fprintf oc "%s" (Pretty.pretty weeded_one));
-        Check.check_prog weeded_one;
+        let dump_option = if out_mode.symtbl_dump then Some basename else None in
+        Check.check_prog dump_option weeded_one;
         let weeded_two = Weeder.ReturnWeeding.weed weeded_one; weeded_one in
         (if out_mode.pp_mode = PP_with_types then
            let oc' = open_out (basename ^ ".pptype.go") in
