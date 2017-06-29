@@ -60,6 +60,11 @@ let get_op_mode (args: string array) : op_mode =
   let default_op_mode = Compile (None, default_output_mode) in
   Array.fold args' ~init:default_op_mode ~f:process_arg
 
+let go_basename_exn (go_fname : string) : string =
+  match String.chop_suffix go_fname ~suffix:".go" with
+  | None -> failwith "Filename does not have .go extension"
+  | Some basename -> basename
+
 let () = try
     match get_op_mode Sys.argv with
     | Info Help -> fprintf stdout 
@@ -73,23 +78,24 @@ let () = try
         lexbuf.lex_curr_p <- {lexbuf.lex_curr_p with pos_fname = fname};
         let p = Goparse.prog Golex.token lexbuf in 
         let weeded_one = Weeder.ForSwitchWeeding.weed p in
+        let basename = go_basename_exn fname in
         (if out_mode.pp_mode = PP_no_types then
-          let oc = open_out (String.sub fname 0 (String.rindex_exn fname '.') ^ ".pretty.go") in
+          let oc = open_out (basename ^ ".pretty.go") in
           fprintf oc "%s" (Pretty.pretty weeded_one));
         Check.check_prog weeded_one;
         let weeded_two = Weeder.ReturnWeeding.weed weeded_one; weeded_one in
         (if out_mode.pp_mode = PP_with_types then
-           let oc' = open_out (String.sub fname 0 (String.rindex_exn fname '.') ^ ".pptype.go") in
+           let oc' = open_out (basename ^ ".pptype.go") in
            fprintf oc' "%s" (Pretty.pretty weeded_two));
         (if out_mode.c_gen then
-           let oc' = open_out (String.sub fname 0 (String.rindex_exn fname '.') ^ ".c") in
+           let oc' = open_out (basename ^ ".c") in
            fprintf oc' "%s" (Codegen.gen_prog weeded_two));
         flush stdout
       end
   with
   | Golex.LexerError msg -> fprintf stderr "Lexer error: %s\n" msg
   | Goparse.Error -> fprintf stderr "Syntax error.\n"
-  (*)| E.ParsingError (s, p) ->
+  (*| E.ParsingError (s, p) ->
       let string_of_pos pos = sprintf "%s:%d:%d" pos.pos_fname pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1) in
       fprintf stderr "%s\n" (string_of_pos p ^ ": error: " ^ s)
   | E.Error s -> fprintf stderr "Error: %s\n" s*)
