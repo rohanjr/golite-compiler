@@ -58,7 +58,7 @@ module SymTbl = struct
       let oc = open_out_gen [Open_creat; Open_trunc] 0o666 filename in
       close_out oc
 
-  let symTblStack : (string, tp_or_id) Hashtbl.t Stack.t = Stack.create ()
+  let symTblStack : symtbl Stack.t = Stack.create ()
 
   let enter_scope () : unit = Stack.push symTblStack (String.Table.create ())
 
