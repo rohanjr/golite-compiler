@@ -247,7 +247,7 @@ and check_varspecsimp (vss : varspecsimp) : tp =
 and check_stmt : stmt -> unit = function
   | Decl (pos, ds) -> check_declstmt ds
   | Simple (pos, ss) -> check_simplestmt ss
-  | Return (pos, eo) -> Util.omap (fun e -> ignore (check_expr e)) () eo
+  | Return (pos, eo) -> Option.iter eo (fun e -> ignore (check_expr e))
   | Break pos -> ()
   | Continue pos -> ()
   | Block (pos, sl) -> check_block pos sl
@@ -290,7 +290,7 @@ and check_simplestmt : simplestmt -> unit = function
        with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
   | AssignVar (pos, op, i, e) -> check_assignop op (check_id i, true) (check_expr e)
   | ShortVarDecl (pos, il, el, dlor) -> 
-    let declared = List.map il (fun i -> if i = "_" then true else Util.omap (fun _ -> true) false (SymTbl.get_curr i)) in
+    let declared = List.map il (fun i -> if i = "_" then true else Option.is_some (SymTbl.get_curr i)) in
     let _ = dlor := Some declared in
     if (List.fold_left ~f:(&&) ~init:true declared) then raise (DeclError "All variables in short declaration were already declared")
     else 
@@ -337,7 +337,7 @@ and compare_tps (t : tp) (t' : tp) : bool =
 
 and check_varspec : varspec -> unit = function
   | VarSpecTp (pos, vss, elo) ->
-    let t = check_varspecsimp vss in Util.omap (List.iter ~f:(fun e -> compare_exp_tp e t)) () elo (* TODO: Recheck whether we should compare type *)
+    let t = check_varspecsimp vss in Option.iter elo (List.iter ~f:(fun e -> compare_exp_tp e t)) (* TODO: Recheck whether we should compare type *)
   | VarSpecNoTp (pos, il, el) -> 
     try let l = List.zip_exn il el in
       List.iter l
@@ -368,7 +368,7 @@ and check_tp : tp -> unit = function
   List.iter vssl check_varspecsimp
 
 and check_ifcond : ifcond -> unit = function
-  IfCond (pos, sso, e) -> Util.omap check_simplestmt () sso; check_cond e
+  IfCond (pos, sso, e) -> Option.iter sso check_simplestmt; check_cond e
 
 and check_ifstmt (ifs : ifstmt) : unit =
   SymTbl.enter_scope ();
@@ -390,8 +390,10 @@ and check_ifstmt (ifs : ifstmt) : unit =
 
 and check_switchcond : switchcond -> tp * bool = function
   SwitchCond (pos, sso, eo) ->
-    Util.omap check_simplestmt () sso;
-    let (tp, b) = Util.omap check_expr (Bool, false) eo in if comparable tp then (tp, b) else raise (TypeError ("Cannot switch on an expression " ^ Util.omap (fun e -> pretty_expr e Zero) "INVALID EXPRESSION" eo ^ " of incomparable type " ^ pretty_tp tp Zero))
+    Option.iter sso check_simplestmt;
+    let (tp, b) = Option.value_map eo ~default:(Bool, false) ~f:check_expr in
+    if comparable tp then (tp, b)
+    else raise (TypeError ("Cannot switch on an expression " ^ Option.value_map eo ~default:"INVALID EXPRESSION" ~f:(fun e -> pretty_expr e Zero) ^ " of incomparable type " ^ pretty_tp tp Zero))
 
 and check_expr_clause ((t, b) : tp * bool) (ecc : exprcaseclause) : unit = match ecc with
   | ExprCaseClause (pos1, Case (pos2, el), sl) ->
@@ -413,7 +415,7 @@ and first_tp_eccl : exprcaseclause list -> (expr * (tp * bool)) option = functio
 
 and check_switchstmt : switchstmt -> unit = function
   SwitchStmt (pos, sco, eccl) ->
-    let (t, b) = Util.omap check_switchcond (Bool, false) sco in
+    let (t, b) = Option.value_map sco ~default:(Bool, false) ~f:check_switchcond in
     let (t, b) = match first_tp_eccl eccl with
     | Some (e, (t', b')) -> (if (compare_tps2 (t, b) (t', b)) then (t', b || b') 
          else raise (DeclError ("Expression " ^ pretty_expr e Zero ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ "."))) 
@@ -438,9 +440,9 @@ and check_forstmt : forstmt -> unit = function
       SymTbl.exit_scope pos
   | ForLoop (pos, sso1, eo, sso2, sl) ->
       SymTbl.enter_scope ();      
-      Util.omap check_simplestmt () sso1; (* The first arg of the for is only in scope in the loop *)
-      Util.omap check_cond () eo;
-      Util.omap check_simplestmt () sso2;
+      Option.iter sso1 check_simplestmt; (* The first arg of the for is only in scope in the loop *)
+      Option.iter eo check_cond;
+      Option.iter sso2 check_simplestmt;
       List.iter sl check_stmt;
       SymTbl.exit_scope pos
 
@@ -458,7 +460,7 @@ and check_printstmt : printstmt -> unit = function
 	   ) 
         | _ -> raise (TypeError ("Expression " ^ pretty_expr e Zero ^ " has wrong type for printing."))
         end ) in check_printable_tps (fst (check_expr e)) in
-      Util.omap (List.iter ~f:check_printable) () elo
+      Option.iter ~f:(List.iter ~f:check_printable) elo
 
 and check_expr e = match e with
   | Unary (pos, ue, tor) ->  let (t, b) = check_unaryexpr ue in tor := Some t; (t,b)
@@ -584,12 +586,12 @@ and check_arrayaccess (pe : primaryexpr) (e : expr) (tor : tp option ref) : tp *
 and check_slice (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (tor : tp option ref) : tp * bool =
   let (t, b) = check_primaryexpr pe in match base_tp t with
      | Some TArray (_, t) | Some TSlice t ->
-         let f = Util.omap
-           (fun e -> (match check_expr e with
+         let f = Option.iter
+           ~f:(fun e -> (match check_expr e with
               | (Int, b') -> () 
               | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
                             pretty_expr e Zero ^ ".")))
-            ) () in
+            ) in
       f eo1; f eo2; tor := Some (TSlice t); (TSlice t, b)
      | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
                               ^ pretty_primary pe Zero ^ "."))
@@ -602,7 +604,7 @@ and check_slicecap (pe : primaryexpr) (eo : expr option) (e1 : expr) (e2 : expr)
 					     | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
 									pretty_expr e Zero ^ "."))
 					    ) in
-					  Util.omap f () eo; f e1; f e2; tor := Some (TSlice t); (TSlice t, b)
+					  Option.iter eo f; f e1; f e2; tor := Some (TSlice t); (TSlice t, b)
   | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
                              ^ pretty_primary pe Zero ^ "."))
 
