@@ -210,12 +210,12 @@ and check_topleveldecl : topleveldecl -> unit = function
     SymTbl.enter_scope ();
     let tl = Option.value_map vslo ~default:[] ~f:(List.concat_map ~f:check_varspecsimp_func) in
     let t = Option.value ~default:Void tpo in
-    (* TODO Clean up the next two lines *)
-    ignore (List.map tl
-              (fun x -> if test_tp x then () else
-                  raise (TypeError ("Type " ^ pretty_tp x Zero ^ " is undeclared, but is an input type for function " ^ i ^ "."))));
-    ignore ((fun x -> if test_tp x then () else
-                raise (TypeError ("Type " ^ pretty_tp x Zero ^ " is undeclared, but is an input type for function " ^ i ^ "."))) t);
+    List.iter tl
+      (* TODO factor out this checking function *)
+      (fun x -> if not (test_tp x) then
+          raise (TypeError ("Type " ^ pretty_tp x Zero ^ " is undeclared, but is an input type for function " ^ i ^ ".")));
+    (if not (test_tp t) then
+       raise (TypeError ("Type " ^ pretty_tp t Zero ^ " is undeclared, but is an input type for function " ^ i ^ ".")));
     List.iter sl check_stmt;
     SymTbl.exit_scope pos;
   | Stmt (pos, s) -> check_stmt s
@@ -273,40 +273,40 @@ and check_simplestmt : simplestmt -> unit = function
   | Inc (pos, e) | Dec (pos, e) -> let (t, b) = check_expr e in if numeric t then (if b then () else raise (TypeError "Invalid inc/dec statement")) else raise (TypeError "Incrementing non-numeric type.")
   | AssignEquals (pos, ll, el) -> (* TODO: If the RHS has identifiers, it must be equal, otherwise, compare *)      
       (try List.iter2_exn
-             (* TODO fuse maps *)
-             (List.map (List.map ll check_lvalue) fst) (List.map (List.map el check_expr) fst)
-             (fun t1 t2 -> if compare_tps t1 t2 then ()
-                          else raise (DeclError ("Cannot assign expression of type " ^ pretty_tp t2 Zero ^
+             (List.map ll (Fn.compose fst check_lvalue)) (List.map el (Fn.compose fst check_expr))
+             (fun t1 t2 -> if not (compare_tps t1 t2) then
+                 raise (DeclError ("Cannot assign expression of type " ^ pretty_tp t2 Zero ^
                                                  " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
        with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
   | Assign (pos, op, l, e) -> check_assignop op (check_lvalue l) (check_expr e)
   | AssignVarEquals (pos, il, el) -> (* TODO: Reverify. If the RHS has identifiers, it must be equal, otherwise, compare *)
-      let il', el' = remove_underscores il el in
+      let il, el = remove_underscores il el in
       (try List.iter2_exn
-             (List.map il' check_id) (List.map el' check_expr)
-             (fun t1 p2 -> if compare_tps2 (t1, true) (p2) then () (* TODO: Reverify. Here, we consider that the LHS has an id, and thus it can be comparable iff the RHS has no id, equal otherwise *)
-                          else raise (DeclError ("Cannot assign expression of type " ^ pretty_tp (fst p2) Zero ^
-                                                 " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
+             (List.map il check_id) (List.map el check_expr)
+             (fun t1 p2 -> if not (compare_tps2 (t1, true) p2) then
+             (* TODO: Reverify. Here, we consider that the LHS has an id, and thus it can be comparable iff the RHS has no id, equal otherwise *)
+                 raise (DeclError ("Cannot assign expression of type " ^ pretty_tp (fst p2) Zero ^
+                                   " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
        with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
   | AssignVar (pos, op, i, e) -> check_assignop op (check_id i, true) (check_expr e)
   | ShortVarDecl (pos, il, el, dlor) -> 
-    let declared = List.map il (fun i -> if i = "_" then true else Option.is_some (SymTbl.get_curr i)) in
-    let _ = dlor := Some declared in
-    if (List.fold_left ~f:(&&) ~init:true declared) then raise (DeclError "All variables in short declaration were already declared")
+    let declared = List.map il (fun i -> i = "_" || Option.is_some (SymTbl.get_curr i)) in
+    dlor := Some declared;
+    if List.for_all ~f:Fn.id declared then
+      raise (DeclError "All variables in short declaration were already declared")
     else 
       let exp_types = List.map el check_expr in
       (* TODO use zip and handle case of unequal lengths *)
       let combined = List.zip_exn (List.zip_exn il declared) exp_types in
       List.iter combined
         (fun ((i, dec), (t', b)) ->
-               if dec then
-                 begin		          
-                   match SymTbl.get_curr i with
-                   | Some ti -> let t = id_symb i ti in if compare_tps2 (t, true) (t', b) then () else raise (DeclError ("Variable " ^ i ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ ".")) (* TODO: Reanalyse how we compare the types if there is an identifier *)
-                   | None -> if i = "_" then () else raise (InternalError "A variable is claimed to be inside of the current scope, but it is not")
-                 end
-               else if t' = Void then raise (TypeError ("Variable " ^ i ^ " assigned void type")) else add_var i t'
-            )
+           if dec then
+             begin		          
+               match SymTbl.get_curr i with
+               | Some ti -> let t = id_symb i ti in if compare_tps2 (t, true) (t', b) then () else raise (DeclError ("Variable " ^ i ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ ".")) (* TODO: Reanalyse how we compare the types if there is an identifier *)
+               | None -> if i = "_" then () else raise (InternalError "A variable is claimed to be inside of the current scope, but it is not")
+             end
+           else if t' = Void then raise (TypeError ("Variable " ^ i ^ " assigned void type")) else add_var i t')
 
 and check_lvalue : lvalue -> tp * bool = function
   | LSel (pos, pe, i, tor) -> check_fieldsel pe i tor
