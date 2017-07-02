@@ -9,6 +9,8 @@
  * Shawn Otis 
  *)
 
+open Core.Std
+
 open Lexing
 open Ast
 open Pretty
@@ -153,7 +155,7 @@ let rec comparable : tp -> bool = function
                         "should be in symbol table before checking properties."))
        | Some ti -> comparable (tp_symb i ti)
       )
-  | TStruct vssl -> List.fold_right (fun a b -> a && b) (List.map (fun x -> let (idl, t) = x in comparable t) vssl) true (* TODO reverify validity *)
+  | TStruct vssl -> List.for_all vssl ~f:(fun x -> let (idl, t) = x in comparable t)
   | TArray (n, t) -> comparable t
   | TSlice _ -> false
   | FuncTp _ -> false
@@ -195,22 +197,27 @@ let rec integer : tp -> bool = function
 let rec check_prog (dump_option : string option): prog -> unit = function
     Prog (pos, p, dl) ->
     SymTbl.init dump_option; (* open global scope with predeclared identifiers *)
-    List.iter check_topleveldecl dl;
+    List.iter dl check_topleveldecl;
     SymTbl.exit_scope pos (* exit global scope and maybe dump the final symbol table *)
 
 and check_topleveldecl : topleveldecl -> unit = function
   | FuncDecl (pos, i, vslo, tpo, sl) ->
-      let get_arg_typ vss =
-        let (vars, t) = vss in List.map (fun x -> t) vars
-      in let tl = Util.omap (fun vsl -> List.flatten (List.map get_arg_typ vsl)) [] vslo in
-      let t = Util.omap (fun x -> x) Void tpo in
-      SymTbl.add i (Fn (FuncTp(tl, t)));
-     SymTbl.enter_scope ();
-     let tl = Util.omap (fun vsl -> List.flatten (List.map check_varspecsimp_func vsl)) [] vslo in
-     let t = Util.omap (fun x -> x) Void tpo in
-     ignore (List.map (fun x -> if test_tp x then () else raise (TypeError ("Type " ^ pretty_tp x Zero ^ " is undeclared, but is an input type for function " ^ i ^ "."))) tl); ignore ((fun x -> if test_tp x then () else raise (TypeError ("Type " ^ pretty_tp x Zero ^ " is undeclared, but is an input type for function " ^ i ^ "."))) t);     
-     List.iter check_stmt sl;
-     SymTbl.exit_scope pos;
+    let get_arg_typ vss =
+      let (vars, t) = vss in List.map vars (fun x -> t) in
+    let tl = Option.value_map vslo ~default:[] ~f:(List.concat_map ~f:get_arg_typ) in
+    let t = Option.value tpo ~default:Void in
+    SymTbl.add i (Fn (FuncTp(tl, t)));
+    SymTbl.enter_scope ();
+    let tl = Option.value_map vslo ~default:[] ~f:(List.concat_map ~f:check_varspecsimp_func) in
+    let t = Option.value ~default:Void tpo in
+    (* TODO Clean up the next two lines *)
+    ignore (List.map tl
+              (fun x -> if test_tp x then () else
+                  raise (TypeError ("Type " ^ pretty_tp x Zero ^ " is undeclared, but is an input type for function " ^ i ^ "."))));
+    ignore ((fun x -> if test_tp x then () else
+                raise (TypeError ("Type " ^ pretty_tp x Zero ^ " is undeclared, but is an input type for function " ^ i ^ "."))) t);
+    List.iter sl check_stmt;
+    SymTbl.exit_scope pos;
   | Stmt (pos, s) -> check_stmt s
 
 and test_tp (t : tp) : bool =
@@ -228,13 +235,13 @@ and add_var (i :id) (t : tp) : unit =
 
 and check_varspecsimp_func (vss : varspecsimp) : tp list =
   let (vars, t) = vss in
-    List.iter (fun i -> add_var i t) vars;
-    List.map (fun x -> t) vars
+    List.iter vars (fun i -> add_var i t);
+    List.map vars (fun x -> t)
 
 and check_varspecsimp (vss : varspecsimp) : tp =
   let (vars, t) = vss in
     check_tp t;
-    List.iter (fun i -> add_var i t) vars;
+    List.iter vars (fun i -> add_var i t);
     t
 
 and check_stmt : stmt -> unit = function
@@ -251,7 +258,7 @@ and check_stmt : stmt -> unit = function
 
 and check_block (pos : Lexing.position) (sl : stmt list) : unit =
   SymTbl.enter_scope ();
-  List.iter check_stmt sl;
+  List.iter sl check_stmt;
   SymTbl.exit_scope pos
 
 and compare_tps2 ((t1, b1) : (tp * bool)) ((t2, b2) : tp * bool) : bool =
@@ -265,40 +272,41 @@ and check_simplestmt : simplestmt -> unit = function
   | Expr (pos, e) -> ignore (check_expr e)
   | Inc (pos, e) | Dec (pos, e) -> let (t, b) = check_expr e in if numeric t then (if b then () else raise (TypeError "Invalid inc/dec statement")) else raise (TypeError "Incrementing non-numeric type.")
   | AssignEquals (pos, ll, el) -> (* TODO: If the RHS has identifiers, it must be equal, otherwise, compare *)      
-      (try List.iter2
-            (fun t1 t2 -> if compare_tps t1 t2 then ()
+      (try List.iter2_exn
+             (* TODO fuse maps *)
+             (List.map (List.map ll check_lvalue) fst) (List.map (List.map el check_expr) fst)
+             (fun t1 t2 -> if compare_tps t1 t2 then ()
                           else raise (DeclError ("Cannot assign expression of type " ^ pretty_tp t2 Zero ^
                                                  " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
-            (List.map fst (List.map check_lvalue ll)) (List.map fst (List.map check_expr el))
        with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
   | Assign (pos, op, l, e) -> check_assignop op (check_lvalue l) (check_expr e)
   | AssignVarEquals (pos, il, el) -> (* TODO: Reverify. If the RHS has identifiers, it must be equal, otherwise, compare *)
       let il', el' = remove_underscores il el in
-      (try List.iter2
-            (fun t1 p2 -> if compare_tps2 (t1, true) (p2) then () (* TODO: Reverify. Here, we consider that the LHS has an id, and thus it can be comparable iff the RHS has no id, equal otherwise *)
+      (try List.iter2_exn
+             (List.map il' check_id) (List.map el' check_expr)
+             (fun t1 p2 -> if compare_tps2 (t1, true) (p2) then () (* TODO: Reverify. Here, we consider that the LHS has an id, and thus it can be comparable iff the RHS has no id, equal otherwise *)
                           else raise (DeclError ("Cannot assign expression of type " ^ pretty_tp (fst p2) Zero ^
                                                  " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
-            (List.map check_id il') (List.map check_expr el')
        with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
   | AssignVar (pos, op, i, e) -> check_assignop op (check_id i, true) (check_expr e)
   | ShortVarDecl (pos, il, el, dlor) -> 
-    let declared = List.map (fun i -> if i = "_" then true else Util.omap (fun _ -> true) false (SymTbl.get_curr i)) il in
-      let _ = dlor := Some declared in
-      if (List.fold_left ( && ) true declared) then raise (DeclError "All variables in short declaration were already declared")
-      else 
-        let exp_types = List.map check_expr el in
-        let combined = List.combine (List.combine il declared) exp_types in
-          List.iter 
-          (fun ((i, dec), (t', b)) ->
-            if dec then
-              begin		          
-                match SymTbl.get_curr i with
-                | Some ti -> let t = id_symb i ti in if compare_tps2 (t, true) (t', b) then () else raise (DeclError ("Variable " ^ i ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ ".")) (* TODO: Reanalyse how we compare the types if there is an identifier *)
-		            | None -> if i = "_" then () else raise (InternalError "A variable is claimed to be inside of the current scope, but it is not")
-              end
-            else if t' = Void then raise (TypeError ("Variable " ^ i ^ " assigned void type")) else add_var i t'
-          )
-          combined
+    let declared = List.map il (fun i -> if i = "_" then true else Util.omap (fun _ -> true) false (SymTbl.get_curr i)) in
+    let _ = dlor := Some declared in
+    if (List.fold_left ~f:(&&) ~init:true declared) then raise (DeclError "All variables in short declaration were already declared")
+    else 
+      let exp_types = List.map el check_expr in
+      (* TODO use zip and handle case of unequal lengths *)
+      let combined = List.zip_exn (List.zip_exn il declared) exp_types in
+      List.iter combined
+        (fun ((i, dec), (t', b)) ->
+               if dec then
+                 begin		          
+                   match SymTbl.get_curr i with
+                   | Some ti -> let t = id_symb i ti in if compare_tps2 (t, true) (t', b) then () else raise (DeclError ("Variable " ^ i ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ ".")) (* TODO: Reanalyse how we compare the types if there is an identifier *)
+                   | None -> if i = "_" then () else raise (InternalError "A variable is claimed to be inside of the current scope, but it is not")
+                 end
+               else if t' = Void then raise (TypeError ("Variable " ^ i ^ " assigned void type")) else add_var i t'
+            )
 
 and check_lvalue : lvalue -> tp * bool = function
   | LSel (pos, pe, i, tor) -> check_fieldsel pe i tor
@@ -307,8 +315,8 @@ and check_lvalue : lvalue -> tp * bool = function
   | LSliceCap (pos, pe, eo, e1, e2, tor) -> check_slicecap pe eo e1 e2 tor
 
 and check_declstmt : declstmt -> unit = function
-  | VarDecls (pos, vsl) -> List.iter check_varspec vsl
-  | TypeDecls (pos, tsl) -> List.iter check_typespec tsl (* TODO What about redeclarations? *)
+  | VarDecls (pos, vsl) -> List.iter vsl check_varspec
+  | TypeDecls (pos, tsl) -> List.iter tsl check_typespec (* TODO What about redeclarations? *)
 
 (* This function tests if e has expected type t, raises an error if it doesn't *)
 and compare_exp_tp (e : expr) (t : tp) : unit = let (t', b) = check_expr e in  (* TODO: Reverify. Check if any case needs us to actually have the same type *)
@@ -329,11 +337,16 @@ and compare_tps (t : tp) (t' : tp) : bool =
 
 and check_varspec : varspec -> unit = function
   | VarSpecTp (pos, vss, elo) ->
-    let t = check_varspecsimp vss in Util.omap (List.iter (fun e -> compare_exp_tp e t)) () elo (* TODO: Recheck whether we should compare type *)
+    let t = check_varspecsimp vss in Util.omap (List.iter ~f:(fun e -> compare_exp_tp e t)) () elo (* TODO: Recheck whether we should compare type *)
   | VarSpecNoTp (pos, il, el) -> 
-      try let l = List.combine il el in List.iter (fun (i,e) -> let tp = fst (check_expr e) in if tp = Void then raise (TypeError ("Cannot assign expression " ^ pretty_expr e Zero ^ " of type void to variable.")) else add_var i tp) l
-			    with Invalid_argument _ -> raise (InternalError "VarSpecNoTp has lists of different lengths")
-   (* TODO reverify validity *)
+    try let l = List.zip_exn il el in
+      List.iter l
+        (fun (i,e) -> let tp = fst (check_expr e) in
+          if tp = Void then
+            raise (TypeError ("Cannot assign expression " ^ pretty_expr e Zero ^ " of type void to variable."))
+          else add_var i tp)
+    with Invalid_argument _ -> raise (InternalError "VarSpecNoTp has lists of different lengths")
+(* TODO reverify validity *)
 
 and check_typespec : typespec -> unit = 
   function TpSpec (pos, name, t) -> check_tp t;
@@ -352,7 +365,7 @@ and check_tp : tp -> unit = function
   let check_varspecsimp vss =
     let (vars, t) = vss in check_tp t
   in
-  List.iter check_varspecsimp vssl
+  List.iter vssl check_varspecsimp
 
 and check_ifcond : ifcond -> unit = function
   IfCond (pos, sso, e) -> Util.omap check_simplestmt () sso; check_cond e
@@ -382,8 +395,10 @@ and check_switchcond : switchcond -> tp * bool = function
 
 and check_expr_clause ((t, b) : tp * bool) (ecc : exprcaseclause) : unit = match ecc with
   | ExprCaseClause (pos1, Case (pos2, el), sl) ->
-      List.iter (check_switch_expr t) el; List.iter check_stmt sl (* TODO: Reverify. Here, we make sure the types of the cases and the switch condition are comparable, and then make sure every case has the same type *)
-  | ExprCaseClause (pos1, Default pos2, sl) -> List.iter check_stmt sl
+    List.iter el (check_switch_expr t);
+    List.iter sl check_stmt
+  (* TODO: Reverify. Here, we make sure the types of the cases and the switch condition are comparable, and then make sure every case has the same type *)
+  | ExprCaseClause (pos1, Default pos2, sl) -> List.iter sl check_stmt
 
 and check_switch_expr (t : tp) (e : expr) : unit = let (t', _) = check_expr e in
   if (t = t') then ()
@@ -404,7 +419,7 @@ and check_switchstmt : switchstmt -> unit = function
          else raise (DeclError ("Expression " ^ pretty_expr e Zero ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ "."))) 
     | None -> (t, b)
 in    
-    List.iter (check_expr_clause (t, b)) eccl
+    List.iter eccl (check_expr_clause (t, b))
 
 and check_cond (e : expr) : unit = 
   let (t, b) = check_expr e in
@@ -414,19 +429,19 @@ and check_cond (e : expr) : unit =
 and check_forstmt : forstmt -> unit = function
   | InfLoop (pos, sl) -> 
       SymTbl.enter_scope ();
-      List.iter check_stmt sl;
+      List.iter sl check_stmt;
       SymTbl.exit_scope pos
   | WhileLoop (pos, e, sl) ->     
       SymTbl.enter_scope ();
       check_cond e; 
-      List.iter check_stmt sl;
+      List.iter sl check_stmt;
       SymTbl.exit_scope pos
   | ForLoop (pos, sso1, eo, sso2, sl) ->
       SymTbl.enter_scope ();      
       Util.omap check_simplestmt () sso1; (* The first arg of the for is only in scope in the loop *)
       Util.omap check_cond () eo;
       Util.omap check_simplestmt () sso2;
-      List.iter check_stmt sl;
+      List.iter sl check_stmt;
       SymTbl.exit_scope pos
 
 and check_printstmt : printstmt -> unit = function
@@ -443,7 +458,7 @@ and check_printstmt : printstmt -> unit = function
 	   ) 
         | _ -> raise (TypeError ("Expression " ^ pretty_expr e Zero ^ " has wrong type for printing."))
         end ) in check_printable_tps (fst (check_expr e)) in
-      Util.omap (List.iter check_printable) () elo
+      Util.omap (List.iter ~f:check_printable) () elo
 
 and check_expr e = match e with
   | Unary (pos, ue, tor) ->  let (t, b) = check_unaryexpr ue in tor := Some t; (t,b)
@@ -514,14 +529,13 @@ and check_primaryexpr : primaryexpr -> tp * bool = function
 
 and check_funapp (p : tp * bool) (pe : primaryexpr) (el : expr list) tor: tp * bool = match p with
   | (FuncTp (tl, rt), b) ->
-     (try List.iter2
+     (try List.iter2_exn el tl
             (fun e t -> let (tt, b') = check_expr e in if compare_tps2 (tt, b') (t, b) then () (* TODO: Should we compare the tps? *)
 						       else raise (TypeError ("Function argument " ^
 										pretty_expr e Zero ^ " has type " ^ pretty_tp tt Zero ^
 										  " but " ^ pretty_primary pe Zero ^ " expected type " ^
 										    pretty_tp t Zero ^ "."))
             )
-            el tl
       with Invalid_argument _ ->
         raise (TypeError ("Wrong number of arguments to " ^ pretty_primary pe Zero ^ "."))
      ); tor := Some rt; (rt, true) (* TODO: Should we consider function application as a variable for type aliases? *)
@@ -538,7 +552,7 @@ and check_operand : operand -> (tp * bool) = function
   | StrLit (pos, _, tor) -> tor := Some String; (String, false)
 
 and vss_lookup (i : id) (vss : varspecsimp) : tp option = match vss with
-  | (il, t) -> if (List.mem i il) then (Some t) else None
+  | (il, t) -> if (List.mem il i) then (Some t) else None
 
 and struct_lookup (i : id) (vssl : varspecsimp list) : tp = match vssl with
   | [] -> raise (TypeError ("Expected field " ^ i ^ "in structure " ^ pretty_varspecsimp_list vssl Zero ^ "."))
