@@ -10,6 +10,8 @@
  *)
 
 {
+open Core.Std
+
 open Lexing
 open Goparse
 
@@ -31,17 +33,11 @@ let need_semicolon () : bool =
       | INC | DEC | RPAREN | RBRCKT | RBRACE -> true
       | _ -> false end
 
- let count_newlines str =
-  let rec string_explode s = match s with
-    | "" -> []
-    | s' -> (String.get s' 0)::(string_explode (String.sub s' 1 ((String.length s') - 1)))
-  in let chars = string_explode str in
-    let binarray = List.map (fun x -> if x = '\n' then 1 else 0) chars in
-      List.fold_right ( + ) binarray 0
+let count_newlines = String.count ~f:((=) '\n')
 
-  let rec multi_new_line n lexbuf = 
-    let pos = lexbuf.lex_curr_p in
-    lexbuf.lex_curr_p <- {pos with pos_bol = lexbuf.lex_curr_pos; pos_lnum = pos.pos_lnum + n}
+let rec multi_new_line n lexbuf = 
+  let pos = lexbuf.lex_curr_p in
+  lexbuf.lex_curr_p <- {pos with pos_bol = lexbuf.lex_curr_pos; pos_lnum = pos.pos_lnum + n}
 }
 
 let whitesp = [' ' '\t']+
