@@ -20,20 +20,22 @@ exception TypeError of string
 exception DeclError of string
 exception InternalError of string
 
-type tp_or_id = 
-  | Tp of tp | Id of tp | Fn of tp
+(* Values in symbol table *)
+type tp_or_id = Tp of tp | Id of tp | Fn of tp
 
-(* Assign an option reference and return the assigned value *)
-let set (r : 'a option ref) (v : 'a) : 'a = r := Some v; v
+(* Identifiers that should be predeclared at global scope *)
+let primitives : (string * tp_or_id) list =
+  [("int", Tp Int);
+   ("float64", Tp Float64);
+   ("bool", Tp Bool);
+   ("rune", Tp Rune);
+   ("string", Tp String);
+   ("true", Id Bool);
+   ("false", Id Bool)]
 
 module SymTbl = struct
 
-  open Core.Std
-      
   type symtbl = (string, tp_or_id) Hashtbl.t
-
-  (* Indicates whether to dump symbol table information: if so, includes base file name *)
-  let dump : string option ref = ref None
 
   let string_of_symtbl (tbl : symtbl) : string =
     let bindings = Hashtbl.to_alist tbl in
@@ -42,32 +44,29 @@ module SymTbl = struct
     let string_bindings = List.map bindings string_of_entry in
     (String.concat ~sep:"\n" string_bindings) ^ "\n"
 
+  (* Indicates whether to dump symbol table information: if so, includes base file name *)
+  let dump : string option ref = ref None
+
+  let maybe_clear_file () : unit = 
+    match !dump with
+    | None -> ()
+    | Some basename ->
+      let filename = basename ^ ".symtab" in
+      if Sys.file_exists_exn filename then Sys.remove filename
+
   let maybe_dump_symtbl (pos : position) (tbl : symtbl) : unit =
     match !dump with
     | None -> ()
     | Some basename ->
       let filename = basename ^ ".symtab" in
-      let oc = open_out_gen [Open_append] 0o666 filename in
-      let pos_line = sprintf "Scope that begins on line %d\n" pos.pos_lnum in
-      fprintf oc "%s%s\n" pos_line (string_of_symtbl tbl);
-      close_out oc
-
-  let maybe_clear_file () = 
-    match !dump with
-    | None -> ()
-    | Some basename ->
-      let filename = basename ^ ".symtab" in
-      let oc = open_out_gen [Open_creat; Open_trunc] 0o666 filename in
-      close_out oc
+      let out_chan = Out_channel.create ~append:true filename in
+      let pos_line = Printf.sprintf "Scope that begins on line %d\n" pos.pos_lnum in
+      Printf.fprintf out_chan "%s%s\n" pos_line (string_of_symtbl tbl);
+      Out_channel.close out_chan
 
   let symTblStack : symtbl Stack.t = Stack.create ()
 
   let enter_scope () : unit = Stack.push symTblStack (String.Table.create ())
-
-  let exit_scope pos : unit =
-    match Stack.pop symTblStack with
-    | None -> raise (InternalError "Tried to exit global scope.")
-    | Some tbl -> maybe_dump_symtbl pos tbl
 
   let add (name : id) (ti : tp_or_id) : unit =
     match Stack.top symTblStack with
@@ -84,24 +83,10 @@ module SymTbl = struct
   let get (name : id) : tp_or_id option =
     Stack.find_map symTblStack (fun tbl -> Hashtbl.find tbl name)
 
-  (* Add predeclared identifiers *)
-  let add_primitives () =
-    (* Types *)
-    add "int" (Tp Int);
-    add "float64" (Tp Float64);
-    add "bool" (Tp Bool);
-    add "rune" (Tp Rune);
-    add "string" (Tp String);
-    (* Constants *)
-    add "true" (Id Bool);
-    add "false" (Id Bool)
-
-  (* Open universe block *)
-  let init (dump_option : string option) =
-    dump := dump_option;
-    maybe_clear_file ();
-    enter_scope ();
-    add_primitives ()
+  let exit_scope pos : unit =
+    match Stack.pop symTblStack with
+    | None -> raise (InternalError "Tried to exit global scope.")
+    | Some tbl -> maybe_dump_symtbl pos tbl
 
 end
 
@@ -195,8 +180,12 @@ let rec integer : tp -> bool = function
 
 (* Typechecking *)
 let rec check_prog (dump_option : string option): prog -> unit = function
-    Prog (pos, p, dl) ->
-    SymTbl.init dump_option; (* open global scope with predeclared identifiers *)
+    Prog (pos, _, dl) ->
+    SymTbl.dump := dump_option;
+    SymTbl.maybe_clear_file ();
+    SymTbl.enter_scope ();
+    (* Add predeclared identifiers to global scope *)
+    List.iter primitives ~f:(fun (name, ti) -> SymTbl.add name ti);
     List.iter dl check_topleveldecl;
     SymTbl.exit_scope pos (* exit global scope and maybe dump the final symbol table *)
 
@@ -565,7 +554,7 @@ and struct_lookup (i : id) (vssl : varspecsimp list) : tp = match vssl with
 and check_fieldsel (pe : primaryexpr) (i : id) (tor : tp option ref) : tp * bool =
   let (t, b) = check_primaryexpr pe in
   let rec inner t = (match t with
-    | TStruct vssl -> set tor (struct_lookup i vssl)
+    | TStruct vssl -> let t' = struct_lookup i vssl in tor := Some t'; t'
     | TypeVar (i, tor) -> tor := base_tp (TypeVar (i, tor)); let tio = SymTbl.get i in (match tio with
 					     | None -> raise (TypeError ("Primary Expression " ^ pretty_primary pe Zero ^ " should have type " ^ i ^ ", but type " ^ i ^ " is not in the current scope."))
 					     | Some ti -> let t = tp_symb i ti in inner t)
