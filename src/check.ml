@@ -23,6 +23,9 @@ exception InternalError of string
 (* Values in symbol table *)
 type tp_or_id = Tp of tp | Id of tp | Fn of tp
 
+let string_of_tp_or_id : tp_or_id -> string = function
+  | Tp t | Id t | Fn t -> pretty_tp t Zero
+
 (* Identifiers that should be predeclared at global scope *)
 let primitives : (string * tp_or_id) list =
   [("int", Tp Int);
@@ -37,33 +40,30 @@ type symtbl = (string, tp_or_id) Hashtbl.t
 
 let string_of_symtbl (tbl : symtbl) : string =
   let bindings = Hashtbl.to_alist tbl in
-  let string_of_binding (name, ti) = match ti with
-    | Tp t | Id t | Fn t -> name ^ " -> " ^ pretty_tp t Zero in
+  let string_of_binding (name, ti) = name ^ " -> " ^ string_of_tp_or_id ti in
   let string_bindings = List.map bindings string_of_binding in
   (String.concat ~sep:"\n" string_bindings) ^ "\n"
 
-(* Indicates whether to dump symbol table information: if so, includes base file name *)
+(* Indicates whether to dump symbol table information using a given base file name *)
 let dump : string option ref = ref None
 
 let maybe_clear_file () : unit = 
-  match !dump with
-  | None -> ()
-  | Some basename ->
+  Option.iter !dump (fun basename ->
     let filename = basename ^ ".symtab" in
-    if Sys.file_exists_exn filename then Sys.remove filename
+    if Sys.file_exists_exn filename then Sys.remove filename)
 
 let maybe_dump_symtbl (pos : position) (tbl : symtbl) : unit =
-  match !dump with
-  | None -> ()
-  | Some basename ->
+  Option.iter !dump (fun basename ->
     let filename = basename ^ ".symtab" in
     let out_chan = Out_channel.create ~append:true filename in
     let pos_line = Printf.sprintf "Scope that begins on line %d\n" pos.pos_lnum in
     Printf.fprintf out_chan "%s%s\n" pos_line (string_of_symtbl tbl);
-    Out_channel.close out_chan
+    Out_channel.close out_chan)
 
+(* Global symbol table stack *)
 let symTblStack : symtbl Stack.t = Stack.create ()
 
+(* Begin symbol table stack operations *)
 let enter_scope () : unit = Stack.push symTblStack (String.Table.create ())
 
 let add (name : id) (ti : tp_or_id) : unit =
@@ -85,6 +85,7 @@ let exit_scope pos : unit =
   match Stack.pop symTblStack with
   | None -> raise (InternalError "Tried to exit global scope.")
   | Some tbl -> maybe_dump_symtbl pos tbl
+(* End symbol table operations *)
 
 let rec inner_tp (t : tp) : (tp option) = match t with
   | TypeVar (name, _) -> (match get name with 
