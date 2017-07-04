@@ -16,6 +16,26 @@ open Ast
 open Pretty
 open Printf
 
+module type Symtbl = sig
+  type 'a t
+  val create : unit -> 'a t
+  val find : 'a t -> string -> 'a option
+  val add : 'a t -> key:string -> data:'a -> [ `Duplicate | `Ok ]
+  val to_string : 'a t -> ('a -> string) -> string
+end
+
+module Hash_symtbl : Symtbl = struct
+  open Core.Std
+  type 'a t = 'a String.Table.t
+  let create () = String.Table.create ()
+  let find = Hashtbl.find
+  let add = Hashtbl.add
+  let to_string tbl f =
+    let string_of_binding (sym, v) = sym ^ " -> " ^ f v ^ "\n" in
+    Hashtbl.to_alist tbl |> List.map ~f:string_of_binding |> String.concat
+end
+module ST = Hash_symtbl
+
 exception TypeError of string
 exception DeclError of string
 exception InternalError of string
@@ -36,13 +56,9 @@ let primitives : (string * tp_or_id) list =
    ("true", Id Bool);
    ("false", Id Bool)]
 
-type symtbl = (string, tp_or_id) Hashtbl.t
+type symtbl = tp_or_id ST.t
 
-let string_of_symtbl (tbl : symtbl) : string =
-  let bindings = Hashtbl.to_alist tbl in
-  let string_of_binding (name, ti) = name ^ " -> " ^ string_of_tp_or_id ti in
-  let string_bindings = List.map bindings string_of_binding in
-  (String.concat ~sep:"\n" string_bindings) ^ "\n"
+let string_of_symtbl (tbl : symtbl) : string = ST.to_string tbl string_of_tp_or_id
 
 (* Indicates whether to dump symbol table information using a given base file name *)
 let dump : string option ref = ref None
@@ -64,22 +80,22 @@ let maybe_dump_symtbl (pos : position) (tbl : symtbl) : unit =
 let symTblStack : symtbl Stack.t = Stack.create ()
 
 (* Begin symbol table stack operations *)
-let enter_scope () : unit = Stack.push symTblStack (String.Table.create ())
+let enter_scope () : unit = Stack.push symTblStack (ST.create ())
 
 let add (name : id) (ti : tp_or_id) : unit =
   match Stack.top symTblStack with
   | None -> raise (InternalError "Tried to add binding with empty symbol table stack.")
-  | Some tbl -> Hashtbl.change tbl name (function
-    | None -> Some ti
-    | Some _ -> raise (DeclError (name ^ " is already declared in the current scope.")))
+  | Some tbl -> begin match ST.add tbl ~key:name ~data:ti with
+    | `Duplicate -> raise (DeclError (name ^ " is already declared in the current scope."))
+    | `Ok -> () end
 
 let get_curr (name : id) : tp_or_id option =
   match Stack.top symTblStack with
   | None -> raise (InternalError "Tried to look up binding with empty symbol table stack.")
-  | Some tbl -> Hashtbl.find tbl name
+  | Some tbl -> ST.find tbl name
 
 let get (name : id) : tp_or_id option =
-  Stack.find_map symTblStack (fun tbl -> Hashtbl.find tbl name)
+  Stack.find_map symTblStack (Fn.flip ST.find name)
 
 let exit_scope pos : unit =
   match Stack.pop symTblStack with
