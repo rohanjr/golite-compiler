@@ -33,65 +33,61 @@ let primitives : (string * tp_or_id) list =
    ("true", Id Bool);
    ("false", Id Bool)]
 
-module SymTbl = struct
+type symtbl = (string, tp_or_id) Hashtbl.t
 
-  type symtbl = (string, tp_or_id) Hashtbl.t
+let string_of_symtbl (tbl : symtbl) : string =
+  let bindings = Hashtbl.to_alist tbl in
+  let string_of_binding (name, ti) = match ti with
+    | Tp t | Id t | Fn t -> name ^ " -> " ^ pretty_tp t Zero in
+  let string_bindings = List.map bindings string_of_binding in
+  (String.concat ~sep:"\n" string_bindings) ^ "\n"
 
-  let string_of_symtbl (tbl : symtbl) : string =
-    let bindings = Hashtbl.to_alist tbl in
-    let string_of_entry (k, v) = match v with
-      | Tp t | Id t | Fn t -> k ^ " -> " ^ pretty_tp t Zero in
-    let string_bindings = List.map bindings string_of_entry in
-    (String.concat ~sep:"\n" string_bindings) ^ "\n"
+(* Indicates whether to dump symbol table information: if so, includes base file name *)
+let dump : string option ref = ref None
 
-  (* Indicates whether to dump symbol table information: if so, includes base file name *)
-  let dump : string option ref = ref None
+let maybe_clear_file () : unit = 
+  match !dump with
+  | None -> ()
+  | Some basename ->
+    let filename = basename ^ ".symtab" in
+    if Sys.file_exists_exn filename then Sys.remove filename
 
-  let maybe_clear_file () : unit = 
-    match !dump with
-    | None -> ()
-    | Some basename ->
-      let filename = basename ^ ".symtab" in
-      if Sys.file_exists_exn filename then Sys.remove filename
+let maybe_dump_symtbl (pos : position) (tbl : symtbl) : unit =
+  match !dump with
+  | None -> ()
+  | Some basename ->
+    let filename = basename ^ ".symtab" in
+    let out_chan = Out_channel.create ~append:true filename in
+    let pos_line = Printf.sprintf "Scope that begins on line %d\n" pos.pos_lnum in
+    Printf.fprintf out_chan "%s%s\n" pos_line (string_of_symtbl tbl);
+    Out_channel.close out_chan
 
-  let maybe_dump_symtbl (pos : position) (tbl : symtbl) : unit =
-    match !dump with
-    | None -> ()
-    | Some basename ->
-      let filename = basename ^ ".symtab" in
-      let out_chan = Out_channel.create ~append:true filename in
-      let pos_line = Printf.sprintf "Scope that begins on line %d\n" pos.pos_lnum in
-      Printf.fprintf out_chan "%s%s\n" pos_line (string_of_symtbl tbl);
-      Out_channel.close out_chan
+let symTblStack : symtbl Stack.t = Stack.create ()
 
-  let symTblStack : symtbl Stack.t = Stack.create ()
+let enter_scope () : unit = Stack.push symTblStack (String.Table.create ())
 
-  let enter_scope () : unit = Stack.push symTblStack (String.Table.create ())
+let add (name : id) (ti : tp_or_id) : unit =
+  match Stack.top symTblStack with
+  | None -> raise (InternalError "Tried to add binding with empty symbol table stack.")
+  | Some tbl -> Hashtbl.change tbl name (function
+    | None -> Some ti
+    | Some _ -> raise (DeclError (name ^ " is already declared in the current scope.")))
 
-  let add (name : id) (ti : tp_or_id) : unit =
-    match Stack.top symTblStack with
-    | None -> raise (InternalError "Tried to add binding with empty symbol table stack.")
-    | Some tbl -> Hashtbl.change tbl name (function
-        | None -> Some ti
-        | Some _ -> raise (DeclError (name ^ " is already declared in the current scope.")))
+let get_curr (name : id) : tp_or_id option =
+  match Stack.top symTblStack with
+  | None -> raise (InternalError "Tried to look up binding with empty symbol table stack.")
+  | Some tbl -> Hashtbl.find tbl name
 
-  let get_curr (name : id) : tp_or_id option =
-    match Stack.top symTblStack with
-    | None -> raise (InternalError "Tried to look up binding with empty symbol table stack.")
-    | Some tbl -> Hashtbl.find tbl name
+let get (name : id) : tp_or_id option =
+  Stack.find_map symTblStack (fun tbl -> Hashtbl.find tbl name)
 
-  let get (name : id) : tp_or_id option =
-    Stack.find_map symTblStack (fun tbl -> Hashtbl.find tbl name)
-
-  let exit_scope pos : unit =
-    match Stack.pop symTblStack with
-    | None -> raise (InternalError "Tried to exit global scope.")
-    | Some tbl -> maybe_dump_symtbl pos tbl
-
-end
+let exit_scope pos : unit =
+  match Stack.pop symTblStack with
+  | None -> raise (InternalError "Tried to exit global scope.")
+  | Some tbl -> maybe_dump_symtbl pos tbl
 
 let rec inner_tp (t : tp) : (tp option) = match t with
-  | TypeVar (name, _) -> (match SymTbl.get name with 
+  | TypeVar (name, _) -> (match get name with 
          | Some Tp t0 -> Some t0
          | _ -> None
         )
@@ -135,7 +131,7 @@ let id_symb i ti = match ti with
 let rec comparable : tp -> bool = function
   | Bool | Int | Float64 | Rune | String -> true
   | TypeVar (i, tor) -> tor := (base_tp (TypeVar (i, tor)));
-      (match SymTbl.get i with
+      (match get i with
        | None -> raise (InternalError ("Type identifier " ^ i ^
                         "should be in symbol table before checking properties."))
        | Some ti -> comparable (tp_symb i ti)
@@ -150,7 +146,7 @@ let rec ordered : tp -> bool = function
   | Bool -> false
   | Int | Float64 | Rune | String -> true
   | TypeVar (i, tor) -> tor := (base_tp (TypeVar (i, tor)));
-      (match SymTbl.get i with
+      (match get i with
        | None -> raise (InternalError ("Type identifier " ^ i ^
                         "should be in symbol table before checking properties."))
        | Some ti -> ordered (tp_symb i ti)
@@ -160,7 +156,7 @@ let rec ordered : tp -> bool = function
 let rec numeric : tp -> bool = function
   | Int | Float64 | Rune -> true
   | TypeVar (i, tor) -> tor := (base_tp (TypeVar (i, tor)));
-      (match SymTbl.get i with
+      (match get i with
        | None -> raise (InternalError ("Type identifier " ^ i ^
                         "should be in symbol table before checking properties."))
        | Some ti -> numeric (tp_symb i ti)
@@ -171,7 +167,7 @@ let rec numeric : tp -> bool = function
 let rec integer : tp -> bool = function
   | Int | Rune -> true
   | TypeVar (i, tor) -> tor := base_tp (TypeVar (i, tor));
-      (match SymTbl.get i with
+      (match get i with
        | None -> raise (InternalError ("Type identifier " ^ i ^
                         "should be in symbol table before checking properties."))
        | Some ti -> integer (tp_symb i ti)
@@ -179,15 +175,15 @@ let rec integer : tp -> bool = function
   | _ -> false
 
 (* Typechecking *)
-let rec check_prog (dump_option : string option): prog -> unit = function
+let rec check_prog (dump_option : string option) : prog -> unit = function
     Prog (pos, _, dl) ->
-    SymTbl.dump := dump_option;
-    SymTbl.maybe_clear_file ();
-    SymTbl.enter_scope ();
+    dump := dump_option;
+    maybe_clear_file ();
+    enter_scope ();
     (* Add predeclared identifiers to global scope *)
-    List.iter primitives ~f:(fun (name, ti) -> SymTbl.add name ti);
+    List.iter primitives ~f:(fun (name, ti) -> add name ti);
     List.iter dl check_topleveldecl;
-    SymTbl.exit_scope pos (* exit global scope and maybe dump the final symbol table *)
+    exit_scope pos (* exit global scope and maybe dump the final symbol table *)
 
 and check_topleveldecl : topleveldecl -> unit = function
   | FuncDecl (pos, i, vslo, tpo, sl) ->
@@ -195,8 +191,8 @@ and check_topleveldecl : topleveldecl -> unit = function
       let (vars, t) = vss in List.map vars (fun x -> t) in
     let tl = Option.value_map vslo ~default:[] ~f:(List.concat_map ~f:get_arg_typ) in
     let t = Option.value tpo ~default:Void in
-    SymTbl.add i (Fn (FuncTp(tl, t)));
-    SymTbl.enter_scope ();
+    add i (Fn (FuncTp(tl, t)));
+    enter_scope ();
     let tl = Option.value_map vslo ~default:[] ~f:(List.concat_map ~f:check_varspecsimp_func) in
     let t = Option.value ~default:Void tpo in
     List.iter tl
@@ -206,12 +202,12 @@ and check_topleveldecl : topleveldecl -> unit = function
     (if not (test_tp t) then
        raise (TypeError ("Type " ^ pretty_tp t Zero ^ " is undeclared, but is an input type for function " ^ i ^ ".")));
     List.iter sl check_stmt;
-    SymTbl.exit_scope pos;
+    exit_scope pos;
   | Stmt (pos, s) -> check_stmt s
 
 and test_tp (t : tp) : bool =
 (match t with
-  | TypeVar (tp, tor) -> tor := base_tp (TypeVar (tp, tor));let tio = SymTbl.get tp in (match tio with
+  | TypeVar (tp, tor) -> tor := base_tp (TypeVar (tp, tor));let tio = get tp in (match tio with
 					     | None -> false
 					     | Some ti -> ignore (tp_symb tp ti);true)
   | _ -> true
@@ -220,7 +216,7 @@ and test_tp (t : tp) : bool =
 and add_var (i :id) (t : tp) : unit =
   match test_tp t with
   | false -> raise (TypeError (i ^ " has type " ^ pretty_tp t Zero ^ " but it is undeclared."))
-  | true -> SymTbl.add i (Id t)
+  | true -> add i (Id t)
 
 and check_varspecsimp_func (vss : varspecsimp) : tp list =
   let (vars, t) = vss in
@@ -246,9 +242,9 @@ and check_stmt : stmt -> unit = function
   | Print (pos, ps) -> check_printstmt ps
 
 and check_block (pos : Lexing.position) (sl : stmt list) : unit =
-  SymTbl.enter_scope ();
+  enter_scope ();
   List.iter sl check_stmt;
-  SymTbl.exit_scope pos
+  exit_scope pos
 
 and compare_tps2 ((t1, b1) : (tp * bool)) ((t2, b2) : tp * bool) : bool =
   let b = match base_tp t1 with  
@@ -279,7 +275,7 @@ and check_simplestmt : simplestmt -> unit = function
        with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
   | AssignVar (pos, op, i, e) -> check_assignop op (check_id i, true) (check_expr e)
   | ShortVarDecl (pos, il, el, dlor) -> 
-    let declared = List.map il (fun i -> i = "_" || Option.is_some (SymTbl.get_curr i)) in
+    let declared = List.map il (fun i -> i = "_" || Option.is_some (get_curr i)) in
     dlor := Some declared;
     if List.for_all ~f:Fn.id declared then
       raise (DeclError "All variables in short declaration were already declared")
@@ -291,7 +287,7 @@ and check_simplestmt : simplestmt -> unit = function
         (fun ((i, dec), (t', b)) ->
            if dec then
              begin		          
-               match SymTbl.get_curr i with
+               match get_curr i with
                | Some ti -> let t = id_symb i ti in if compare_tps2 (t, true) (t', b) then () else raise (DeclError ("Variable " ^ i ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ ".")) (* TODO: Reanalyse how we compare the types if there is an identifier *)
                | None -> if i = "_" then () else raise (InternalError "A variable is claimed to be inside of the current scope, but it is not")
              end
@@ -339,12 +335,12 @@ and check_varspec : varspec -> unit = function
 
 and check_typespec : typespec -> unit = 
   function TpSpec (pos, name, t) -> check_tp t;
-  if test_tp t then SymTbl.add name (Tp t) else raise (TypeError ("Created alias " ^ name ^ " for type " ^ pretty_tp t Zero ^ ", but t is undeclared."))
+  if test_tp t then add name (Tp t) else raise (TypeError ("Created alias " ^ name ^ " for type " ^ pretty_tp t Zero ^ ", but t is undeclared."))
 
 and check_tp : tp -> unit = function
 | Int | Float64 | Bool | Rune | String | Void -> ()
 | FuncTp (_, tp) -> check_tp tp
-| TypeVar (id, tor) -> tor := base_tp (TypeVar (id, tor));(match SymTbl.get id with
+| TypeVar (id, tor) -> tor := base_tp (TypeVar (id, tor));(match get id with
                  | None -> raise (TypeError "Type alias of undeclared type")
                  | Some ti -> check_tp (tp_symb id ti)
   )
@@ -360,22 +356,22 @@ and check_ifcond : ifcond -> unit = function
   IfCond (pos, sso, e) -> Option.iter sso check_simplestmt; check_cond e
 
 and check_ifstmt (ifs : ifstmt) : unit =
-  SymTbl.enter_scope ();
+  enter_scope ();
   match ifs with
   | IfOnly (pos, ic, sl) ->       
       check_ifcond ic; 
       check_block pos sl;
-      SymTbl.exit_scope pos
+      exit_scope pos
   | IfElse (pos, ic, sl1, sl2) ->      
       check_ifcond ic;
       check_block pos sl1;
       check_block pos sl2;
-      SymTbl.exit_scope pos      
+      exit_scope pos      
   | IfElseIf (pos, ic, sl, is) ->      
       check_ifcond ic;
       check_block pos sl;
       check_ifstmt is;      
-      SymTbl.exit_scope pos
+      exit_scope pos
 
 and check_switchcond : switchcond -> tp * bool = function
   SwitchCond (pos, sso, eo) ->
@@ -419,21 +415,21 @@ and check_cond (e : expr) : unit =
 
 and check_forstmt : forstmt -> unit = function
   | InfLoop (pos, sl) -> 
-      SymTbl.enter_scope ();
+      enter_scope ();
       List.iter sl check_stmt;
-      SymTbl.exit_scope pos
+      exit_scope pos
   | WhileLoop (pos, e, sl) ->     
-      SymTbl.enter_scope ();
+      enter_scope ();
       check_cond e; 
       List.iter sl check_stmt;
-      SymTbl.exit_scope pos
+      exit_scope pos
   | ForLoop (pos, sso1, eo, sso2, sl) ->
-      SymTbl.enter_scope ();      
+      enter_scope ();      
       Option.iter sso1 check_simplestmt; (* The first arg of the for is only in scope in the loop *)
       Option.iter eo check_cond;
       Option.iter sso2 check_simplestmt;
       List.iter sl check_stmt;
-      SymTbl.exit_scope pos
+      exit_scope pos
 
 and check_printstmt : printstmt -> unit = function
   | PrintStmt (pos, elo) | PrintlnStmt (pos, elo) ->
@@ -442,7 +438,7 @@ and check_printstmt : printstmt -> unit = function
         (begin match t with	
         | Int | Float64 | Bool | Rune | String -> ()
 	| TypeVar (i, tor) -> tor := base_tp (TypeVar (i, tor));
-	   (match SymTbl.get i with
+	   (match get i with
 	    | None -> raise (InternalError ("Type identifier " ^ i ^
 					      "should be in symbol table before checking properties."))
 	    | Some ti -> check_printable_tps (tp_symb i ti)
@@ -485,7 +481,7 @@ and check_primaryexpr : primaryexpr -> tp * bool = function
       | Bool -> ()
       | Rune -> ()
       | TypeVar (i, tor) -> tor := base_tp (TypeVar (i, tor));         
-        let nt = SymTbl.get i in        
+        let nt = get i in        
         (match nt with
           | None -> raise (TypeError ("Type of " ^ i ^" not found"))
           | Some typ -> castable (tp_symb i typ)
@@ -555,7 +551,7 @@ and check_fieldsel (pe : primaryexpr) (i : id) (tor : tp option ref) : tp * bool
   let (t, b) = check_primaryexpr pe in
   let rec inner t = (match t with
     | TStruct vssl -> let t' = struct_lookup i vssl in tor := Some t'; t'
-    | TypeVar (i, tor) -> tor := base_tp (TypeVar (i, tor)); let tio = SymTbl.get i in (match tio with
+    | TypeVar (i, tor) -> tor := base_tp (TypeVar (i, tor)); let tio = get i in (match tio with
 					     | None -> raise (TypeError ("Primary Expression " ^ pretty_primary pe Zero ^ " should have type " ^ i ^ ", but type " ^ i ^ " is not in the current scope."))
 					     | Some ti -> let t = tp_symb i ti in inner t)
     | _ -> raise (TypeError ("Tried to access field of non-struct expression "
@@ -656,7 +652,7 @@ and check_assignop (aop : assignop) (t1 : tp * bool)  (t2 : tp * bool) : unit = 
   else raise (TypeError ("Assign operation " ^ pretty_assop aop ^ " has expressions of type " ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))*)
 
 and check_id : id -> tp = fun name ->
-  match SymTbl.get name with
+  match get name with
     | None -> raise (TypeError ("Identifier " ^ name ^ " undeclared."))
     | Some ti -> match ti with 
 		 | Id t -> t
@@ -664,6 +660,6 @@ and check_id : id -> tp = fun name ->
 		 | _ -> raise (TypeError ("1.A Var or Fn was expected, but " ^ name ^ " was received, which is a type."))
 
 and check_id' : id -> tp_or_id = fun name -> 
-  match SymTbl.get name with
+  match get name with
     | None -> raise (TypeError ("Identifier " ^ name ^ " undeclared."))
     | Some ti -> ti
