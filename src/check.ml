@@ -34,6 +34,7 @@ module Hash_symtbl : Symtbl = struct
     let string_of_binding (sym, v) = sym ^ " -> " ^ f v ^ "\n" in
     Hashtbl.to_alist tbl |> List.map ~f:string_of_binding |> String.concat
 end
+
 module ST = Hash_symtbl
 
 exception TypeError of string
@@ -45,16 +46,6 @@ type tp_or_id = Tp of tp | Id of tp | Fn of tp
 
 let string_of_tp_or_id : tp_or_id -> string = function
   | Tp t | Id t | Fn t -> pretty_tp t Zero
-
-(* Identifiers that should be predeclared at global scope *)
-let primitives : (string * tp_or_id) list =
-  [("int", Tp Int);
-   ("float64", Tp Float64);
-   ("bool", Tp Bool);
-   ("rune", Tp Rune);
-   ("string", Tp String);
-   ("true", Id Bool);
-   ("false", Id Bool)]
 
 type symtbl = tp_or_id ST.t
 
@@ -97,27 +88,25 @@ let exit_scope pos : unit =
   | Some tbl -> maybe_dump_symtbl pos tbl
 (* End symbol table operations *)
 
-let rec inner_tp (t : tp) : (tp option) = match t with
-  | TypeVar (name, _) -> (match get name with 
-         | Some Tp t0 -> Some t0
-         | _ -> None
-        )
+let rec inner_tp : tp -> tp option = function
+  | TypeVar (name, _) -> begin match get name with 
+    | Some (Tp t0) -> Some t0
+    | _ -> None end
   | _ -> None
 
-and base_tp (t : tp) : (tp option) = match t with 
-  | TypeVar (name, tor) -> (match inner_tp (TypeVar (name, tor))  with
-         | None -> None
-         | Some (TypeVar (t, tor)) -> base_tp (TypeVar (t, tor))
-         | Some t -> Some t)
+and base_tp (t : tp) : tp option = match t with 
+  | TypeVar (name, tor) -> begin match inner_tp t with
+    | Some (TypeVar (t, tor) as t') -> base_tp t'
+    | t -> t end
   | t -> Some t
 
 let rec remove_underscores il el = match il, el with
-| [], [] -> [], []
-| i::il', e::el' -> 
-  if i = "_" 
-  then remove_underscores il' el'
-  else let (il'', el'') = remove_underscores il' el' in i::il'', e::el''
-| _ -> raise (InternalError "Unequal list lengths in remove_underscores")
+  | [], [] -> [], []
+  | i::il', e::el' -> 
+    if i = "_" 
+    then remove_underscores il' el'
+    else let (il'', el'') = remove_underscores il' el' in i::il'', e::el''
+  | _ -> raise (InternalError "Unequal list lengths in remove_underscores")
 
 (* Verifies that a symbol was really a tp, return its type if it is, returns an error otherwise *)
 let tp_symb i ti = match ti with
@@ -184,6 +173,16 @@ let rec integer : tp -> bool = function
        | Some ti -> integer (tp_symb i ti)
       )
   | _ -> false
+
+(* Identifiers that should be predeclared at global scope *)
+let primitives : (string * tp_or_id) list =
+  [("int", Tp Int);
+   ("float64", Tp Float64);
+   ("bool", Tp Bool);
+   ("rune", Tp Rune);
+   ("string", Tp String);
+   ("true", Id Bool);
+   ("false", Id Bool)]
 
 (* Typechecking *)
 let rec check_prog (dump_option : string option) : prog -> unit = function
