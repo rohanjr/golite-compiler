@@ -80,7 +80,11 @@ let () = try
         (if out_mode.pp_mode = PP_no_types then
           let oc = open_out (basename ^ ".pretty.go") in
           fprintf oc "%s" (Pretty.pretty weeded_one));
-        let dump_option = if out_mode.symtbl_dump then Some basename else None in
+        let dump_option = if out_mode.symtbl_dump then
+            let dump_fname = basename ^ ".symtab" in
+            if Sys.file_exists_exn dump_fname then Sys.remove dump_fname;
+            Some dump_fname
+          else None in
         Check.check_prog dump_option weeded_one;
         let weeded_two = Weeder.ReturnWeeding.weed weeded_one; weeded_one in
         (if out_mode.pp_mode = PP_with_types then

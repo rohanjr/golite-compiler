@@ -60,19 +60,13 @@ type symtbl = tp_or_id ST.t
 
 let string_of_symtbl (tbl : symtbl) : string = ST.to_string tbl string_of_tp_or_id
 
-(* Indicates whether to dump symbol table information using a given base file name *)
+(* Indicates whether to dump symbol table information in a given file *)
 let dump : string option ref = ref None
 
-let maybe_clear_file () : unit = 
-  Option.iter !dump (fun basename ->
-    let filename = basename ^ ".symtab" in
-    if Sys.file_exists_exn filename then Sys.remove filename)
-
 let maybe_dump_symtbl (pos : position) (tbl : symtbl) : unit =
-  Option.iter !dump (fun basename ->
-    let filename = basename ^ ".symtab" in
+  Option.iter !dump (fun filename ->
     let out_chan = Out_channel.create ~append:true filename in
-    let pos_line = Printf.sprintf "Scope that begins on line %d\n" pos.pos_lnum in
+    let pos_line = Printf.sprintf "Scope opened on line %d\n" pos.pos_lnum in
     Printf.fprintf out_chan "%s%s\n" pos_line (string_of_symtbl tbl);
     Out_channel.close out_chan)
 
@@ -195,7 +189,6 @@ let rec integer : tp -> bool = function
 let rec check_prog (dump_option : string option) : prog -> unit = function
     Prog (pos, _, dl) ->
     dump := dump_option;
-    maybe_clear_file ();
     enter_scope ();
     (* Add predeclared identifiers to global scope *)
     List.iter primitives ~f:(fun (name, ti) -> add name ti);
