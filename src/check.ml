@@ -20,11 +20,17 @@ exception TypeError of string
 exception DeclError of string
 exception InternalError of string
 
-(* Values in symbol table *)
+module type Printable = sig
+  type t
+  val to_string : t -> string
+end
+
+(* Type of data stored in symbol table *)
 type tp_or_id = Tp of tp | Id of tp | Fn of tp
 
 let string_of_tp_or_id : tp_or_id -> string = function
   | Tp t | Id t | Fn t -> pretty_tp t Zero
+(* TODO encapsulate as Printable module *)
 
 module type Symtbl = sig
   type 'a t
@@ -35,7 +41,6 @@ module type Symtbl = sig
 end
 
 module Hash_symtbl : Symtbl = struct
-  open Core.Std
   type 'a t = 'a String.Table.t
   let create () = String.Table.create ()
   let add = Hashtbl.add
@@ -88,7 +93,10 @@ module Make_symtbl_stack(ST : Symtbl) = struct
 end
 
 module ST = Hash_symtbl
+module STS = Make_symtbl_stack(ST)
+type symtbl_stack = tp_or_id STS.t
 
+(*
 type symtbl = tp_or_id ST.t
 
 let string_of_symtbl (tbl : symtbl) : string = ST.to_string tbl string_of_tp_or_id
@@ -129,9 +137,10 @@ let exit_scope pos : unit =
   | None -> raise (InternalError "Tried to exit global scope.")
   | Some tbl -> maybe_dump_symtbl pos tbl
 (* End symbol table operations *)
+*)
 
-let rec inner_tp : tp -> tp option = function
-  | TypeVar (name, _) -> begin match get name with 
+let rec inner_tp sts : tp -> tp option = function
+  | TypeVar (name, _) -> begin match STS.lookup sts name with 
     | Some (Tp t0) -> Some t0
     | _ -> None end
   | _ -> None
@@ -170,50 +179,51 @@ let id_symb i ti = match ti with
   | Id t -> t
 
 (* Type classes for checking operators *)
-let rec comparable : tp -> bool = function
+let rec comparable sts : tp -> bool = function
   | Bool | Int | Float64 | Rune | String -> true
   | TypeVar (i, tor) -> tor := (base_tp (TypeVar (i, tor)));
-      (match get i with
+      (match STS.lookup sts i with
        | None -> raise (InternalError ("Type identifier " ^ i ^
                         "should be in symbol table before checking properties."))
-       | Some ti -> comparable (tp_symb i ti)
+       | Some ti -> comparable sts (tp_symb i ti)
       )
   | TStruct vssl -> List.for_all vssl ~f:(fun x -> let (idl, t) = x in comparable t)
-  | TArray (n, t) -> comparable t
+  | TArray (n, t) -> comparable sts t
   | TSlice _ -> false
   | FuncTp _ -> false
   | Void -> false (* TODO Check if Void is comparable *)
 
-let rec ordered : tp -> bool = function
+let rec ordered sts : tp -> bool = function
   | Bool -> false
   | Int | Float64 | Rune | String -> true
   | TypeVar (i, tor) -> tor := (base_tp (TypeVar (i, tor)));
-      (match get i with
+      (match STS.lookup sts i with
        | None -> raise (InternalError ("Type identifier " ^ i ^
                         "should be in symbol table before checking properties."))
-       | Some ti -> ordered (tp_symb i ti)
+       | Some ti -> ordered sts (tp_symb i ti)
       )
   | TStruct _ | TArray _ | TSlice _ | FuncTp _ | Void -> false (* TODO verify if Void is ordered *)
 
-let rec numeric : tp -> bool = function
+let rec numeric sts : tp -> bool = function
   | Int | Float64 | Rune -> true
-  | TypeVar (i, tor) -> tor := (base_tp (TypeVar (i, tor)));
-      (match get i with
-       | None -> raise (InternalError ("Type identifier " ^ i ^
-                        "should be in symbol table before checking properties."))
-       | Some ti -> numeric (tp_symb i ti)
-      )
-
+  | TypeVar (i, tor) ->
+    tor := (base_tp (TypeVar (i, tor)));
+    begin match STS.lookup sts i with
+    | None -> raise (InternalError ("Type identifier " ^ i ^
+                                    "should be in symbol table before checking properties."))
+    | Some ti -> numeric sts (tp_symb i ti)
+    end
   | _ -> false
 
-let rec integer : tp -> bool = function
+let rec integer sts : tp -> bool = function
   | Int | Rune -> true
-  | TypeVar (i, tor) -> tor := base_tp (TypeVar (i, tor));
-      (match get i with
-       | None -> raise (InternalError ("Type identifier " ^ i ^
-                        "should be in symbol table before checking properties."))
-       | Some ti -> integer (tp_symb i ti)
-      )
+  | TypeVar (i, tor) ->
+    tor := base_tp (TypeVar (i, tor));
+    begin match STS.lookup sts i with
+    | None -> raise (InternalError ("Type identifier " ^ i ^
+                                    "should be in symbol table before checking properties."))
+    | Some ti -> integer sts (tp_symb i ti)
+    end
   | _ -> false
 
 (* Identifiers that should be predeclared at global scope *)
@@ -229,73 +239,74 @@ let primitives : (string * tp_or_id) list =
 (* Typechecking *)
 let rec check_prog (dump_option : string option) : prog -> unit = function
     Prog (pos, _, dl) ->
-    dump := dump_option;
-    enter_scope ();
+    let sts = STS.create dump_option in
+    STS.open_scope sts;
     (* Add predeclared identifiers to global scope *)
-    List.iter primitives ~f:(fun (name, ti) -> add name ti);
-    List.iter dl check_topleveldecl;
-    exit_scope pos (* exit global scope and maybe dump the final symbol table *)
+    List.iter primitives ~f:(fun (name, ti) -> STS.add_binding sts name ti);
+    List.iter dl (check_topleveldecl sts);
+    STS.close_scope sts pos string_of_tp_or_id (* exit global scope and maybe dump the final symbol table *)
 
-and check_topleveldecl : topleveldecl -> unit = function
+and check_topleveldecl sts : topleveldecl -> unit = function
   | FuncDecl (pos, i, vslo, tpo, sl) ->
     let get_arg_typ vss =
       let (vars, t) = vss in List.map vars (fun x -> t) in
     let tl = Option.value_map vslo ~default:[] ~f:(List.concat_map ~f:get_arg_typ) in
     let t = Option.value tpo ~default:Void in
-    add i (Fn (FuncTp(tl, t)));
-    enter_scope ();
-    let tl = Option.value_map vslo ~default:[] ~f:(List.concat_map ~f:check_varspecsimp_func) in
+    STS.add_binding sts i (Fn (FuncTp(tl, t)));
+    STS.open_scope sts;
+    let tl = Option.value_map vslo ~default:[] ~f:(List.concat_map ~f:(check_varspecsimp_func sts)) in
     let t = Option.value ~default:Void tpo in
     List.iter tl
       (* TODO factor out this checking function *)
-      (fun x -> if not (test_tp x) then
+      (fun x -> if not (test_tp sts x) then
           raise (TypeError ("Type " ^ pretty_tp x Zero ^ " is undeclared, but is an input type for function " ^ i ^ ".")));
-    (if not (test_tp t) then
+    (if not (test_tp sts t) then
        raise (TypeError ("Type " ^ pretty_tp t Zero ^ " is undeclared, but is an input type for function " ^ i ^ ".")));
-    List.iter sl check_stmt;
-    exit_scope pos;
-  | Stmt (pos, s) -> check_stmt s
+    List.iter sl ~f:(check_stmt sts);
+    STS.close_scope sts pos string_of_tp_or_id;
+  | Stmt (pos, s) -> check_stmt sts s
 
-and test_tp (t : tp) : bool =
-(match t with
-  | TypeVar (tp, tor) -> tor := base_tp (TypeVar (tp, tor));let tio = get tp in (match tio with
-					     | None -> false
-					     | Some ti -> ignore (tp_symb tp ti);true)
+and test_tp sts (t : tp) : bool = match t with
+  | TypeVar (tp, tor) ->
+    tor := base_tp (TypeVar (tp, tor));
+    let tio = STS.lookup sts tp in
+    begin match tio with
+    | None -> false
+    | Some ti -> ignore (tp_symb tp ti); true end
   | _ -> true
-)
 
-and add_var (i :id) (t : tp) : unit =
-  match test_tp t with
+and add_var sts (i :id) (t : tp) : unit =
+  match test_tp sts t with
   | false -> raise (TypeError (i ^ " has type " ^ pretty_tp t Zero ^ " but it is undeclared."))
-  | true -> add i (Id t)
+  | true -> STS.add_binding sts i (Id t)
 
-and check_varspecsimp_func (vss : varspecsimp) : tp list =
+and check_varspecsimp_func sts (vss : varspecsimp) : tp list =
   let (vars, t) = vss in
-    List.iter vars (fun i -> add_var i t);
-    List.map vars (fun x -> t)
+  List.iter vars (fun i -> add_var sts i t);
+  List.map vars (fun x -> t)
 
-and check_varspecsimp (vss : varspecsimp) : tp =
+and check_varspecsimp sts (vss : varspecsimp) : tp =
   let (vars, t) = vss in
-    check_tp t;
-    List.iter vars (fun i -> add_var i t);
-    t
+  check_tp t;
+  List.iter vars (fun i -> add_var sts i t);
+  t
 
-and check_stmt : stmt -> unit = function
-  | Decl (pos, ds) -> check_declstmt ds
-  | Simple (pos, ss) -> check_simplestmt ss
-  | Return (pos, eo) -> Option.iter eo (fun e -> ignore (check_expr e))
+and check_stmt sts : stmt -> unit = function
+  | Decl (pos, ds) -> check_declstmt sts ds
+  | Simple (pos, ss) -> check_simplestmt sts ss
+  | Return (pos, eo) -> Option.iter eo (fun e -> ignore (check_expr sts e))
   | Break pos -> ()
   | Continue pos -> ()
-  | Block (pos, sl) -> check_block pos sl
-  | If (pos, ifs) -> check_ifstmt ifs
-  | Switch (pos, ss) -> check_switchstmt ss
-  | For (pos, fs) -> check_forstmt fs
-  | Print (pos, ps) -> check_printstmt ps
+  | Block (pos, sl) -> check_block sts pos sl
+  | If (pos, ifs) -> check_ifstmt sts ifs
+  | Switch (pos, ss) -> check_switchstmt sts ss
+  | For (pos, fs) -> check_forstmt sts fs
+  | Print (pos, ps) -> check_printstmt sts ps
 
-and check_block (pos : Lexing.position) (sl : stmt list) : unit =
-  enter_scope ();
-  List.iter sl check_stmt;
-  exit_scope pos
+and check_block sts (pos : Lexing.position) (sl : stmt list) : unit =
+  STS.open_scope sts;
+  List.iter sl ~f:(check_stmt sts);
+  STS.close_scope sts pos string_of_tp_or_id
 
 and compare_tps2 ((t1, b1) : (tp * bool)) ((t2, b2) : tp * bool) : bool =
   let b = match base_tp t1 with  
@@ -384,17 +395,23 @@ and check_varspec : varspec -> unit = function
     with Invalid_argument _ -> raise (InternalError "VarSpecNoTp has lists of different lengths")
 (* TODO reverify validity *)
 
-and check_typespec : typespec -> unit = 
-  function TpSpec (pos, name, t) -> check_tp t;
-  if test_tp t then add name (Tp t) else raise (TypeError ("Created alias " ^ name ^ " for type " ^ pretty_tp t Zero ^ ", but t is undeclared."))
+and check_typespec sts : typespec -> unit = function
+    TpSpec (pos, name, t) ->
+    check_tp sts t;
+    if test_tp sts t then
+      STS.add_binding sts name (Tp t)
+    else
+      raise (TypeError ("Created alias " ^ name ^ " for type " ^ pretty_tp t Zero ^ ", but t is undeclared."))
 
-and check_tp : tp -> unit = function
+and check_tp sts : tp -> unit = function
 | Int | Float64 | Bool | Rune | String | Void -> ()
-| FuncTp (_, tp) -> check_tp tp
-| TypeVar (id, tor) -> tor := base_tp (TypeVar (id, tor));(match get id with
-                 | None -> raise (TypeError "Type alias of undeclared type")
-                 | Some ti -> check_tp (tp_symb id ti)
-  )
+| FuncTp (_, tp) -> check_tp sts tp
+| TypeVar (id, tor) ->
+  tor := base_tp (TypeVar (id, tor));
+  begin match STS.lookup sts id with
+  | None -> raise (TypeError "Type alias of undeclared type")
+  | Some ti -> check_tp sts (tp_symb id ti)
+  end
 | TArray (_, tp) -> check_tp tp
 | TSlice tp -> check_tp tp
 | TStruct vssl -> 
@@ -407,22 +424,22 @@ and check_ifcond : ifcond -> unit = function
   IfCond (pos, sso, e) -> Option.iter sso check_simplestmt; check_cond e
 
 and check_ifstmt (ifs : ifstmt) : unit =
-  enter_scope ();
+  STS.open_scope sts;
   match ifs with
   | IfOnly (pos, ic, sl) ->       
       check_ifcond ic; 
       check_block pos sl;
-      exit_scope pos
+      STS.close_scope sts pos string_of_tp_or_id
   | IfElse (pos, ic, sl1, sl2) ->      
       check_ifcond ic;
       check_block pos sl1;
       check_block pos sl2;
-      exit_scope pos      
+      STS.close_scope sts pos string_of_tp_or_id      
   | IfElseIf (pos, ic, sl, is) ->      
       check_ifcond ic;
       check_block pos sl;
       check_ifstmt is;      
-      exit_scope pos
+      STS.close_scope sts pos string_of_tp_or_id
 
 and check_switchcond : switchcond -> tp * bool = function
   SwitchCond (pos, sso, eo) ->
@@ -466,21 +483,21 @@ and check_cond (e : expr) : unit =
 
 and check_forstmt : forstmt -> unit = function
   | InfLoop (pos, sl) -> 
-      enter_scope ();
+      STS.open_scope sts;
       List.iter sl check_stmt;
-      exit_scope pos
+      STS.close_scope sts pos string_of_tp_or_id
   | WhileLoop (pos, e, sl) ->     
-      enter_scope ();
+      STS.open_scope sts;
       check_cond e; 
       List.iter sl check_stmt;
-      exit_scope pos
+      STS.close_scope sts pos string_of_tp_or_id
   | ForLoop (pos, sso1, eo, sso2, sl) ->
-      enter_scope ();      
+      STS.open_scope sts;      
       Option.iter sso1 check_simplestmt; (* The first arg of the for is only in scope in the loop *)
       Option.iter eo check_cond;
       Option.iter sso2 check_simplestmt;
       List.iter sl check_stmt;
-      exit_scope pos
+      STS.close_scope sts pos string_of_tp_or_id
 
 and check_printstmt : printstmt -> unit = function
   | PrintStmt (pos, elo) | PrintlnStmt (pos, elo) ->
