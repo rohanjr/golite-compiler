@@ -16,27 +16,6 @@ open Ast
 open Pretty
 open Printf
 
-module type Symtbl = sig
-  type 'a t
-  val create : unit -> 'a t
-  val find : 'a t -> string -> 'a option
-  val add : 'a t -> key:string -> data:'a -> [ `Duplicate | `Ok ]
-  val to_string : 'a t -> ('a -> string) -> string
-end
-
-module Hash_symtbl : Symtbl = struct
-  open Core.Std
-  type 'a t = 'a String.Table.t
-  let create () = String.Table.create ()
-  let find = Hashtbl.find
-  let add = Hashtbl.add
-  let to_string tbl f =
-    let string_of_binding (sym, v) = sym ^ " -> " ^ f v ^ "\n" in
-    Hashtbl.to_alist tbl |> List.map ~f:string_of_binding |> String.concat
-end
-
-module ST = Hash_symtbl
-
 exception TypeError of string
 exception DeclError of string
 exception InternalError of string
@@ -46,6 +25,69 @@ type tp_or_id = Tp of tp | Id of tp | Fn of tp
 
 let string_of_tp_or_id : tp_or_id -> string = function
   | Tp t | Id t | Fn t -> pretty_tp t Zero
+
+module type Symtbl = sig
+  type 'a t
+  val create : unit -> 'a t
+  val add : 'a t -> key:string -> data:'a -> [ `Duplicate | `Ok ]
+  val find : 'a t -> string -> 'a option
+  val to_string : 'a t -> ('a -> string) -> string
+end
+
+module Hash_symtbl : Symtbl = struct
+  open Core.Std
+  type 'a t = 'a String.Table.t
+  let create () = String.Table.create ()
+  let add = Hashtbl.add
+  let find = Hashtbl.find
+  let to_string tbl f =
+    let string_of_binding (sym, v) = sym ^ " -> " ^ f v ^ "\n" in
+    Hashtbl.to_alist tbl |> List.map ~f:string_of_binding |> String.concat
+end
+
+module type Symtbl_stack = sig
+  type 'a t
+  val create : dumpfile:string option -> 'a t
+  val open_scope : 'a t -> unit
+  val add_binding : 'a t -> name:string -> data:'a -> unit
+  val lookup : 'a t -> string -> 'a option
+  val lookup_topmost : 'a t -> string -> 'a option
+  val close_scope : 'a t -> position -> ('a -> string) -> unit
+end
+
+module Make_symtbl_stack(ST : Symtbl) = struct
+
+  type 'a t = { stack : 'a ST.t Stack.t; dumpfile : string option }
+
+  let create dumpfile = { stack = Stack.create (); dumpfile }
+
+  let open_scope s = Stack.push s.stack (ST.create ())
+
+  let add_binding s name data = match Stack.top s.stack with
+    | None -> failwith ("Tried to add binding with empty symbol table stack.")
+    | Some tbl -> begin match ST.add tbl ~key:name ~data with
+      | `Duplicate -> raise (DeclError (name ^ " is already declared in the current scope."))
+      | `Ok -> () end
+
+  let lookup s name = Stack.find_map s.stack (Fn.flip ST.find name)
+
+  let lookup_topmost s name = match Stack.top s.stack with
+    | None -> failwith ("Tried to look up binding with empty symbol table stack.")
+    | Some tbl -> ST.find tbl name
+
+  let dump_symtbl (tbl : 'a ST.t) (f : 'a -> string) (pos : position) (filename : string) : unit =
+    let out_chan = Out_channel.create ~append:true filename in
+    let pos_line = Printf.sprintf "Scope opened on line %d\n" pos.pos_lnum in
+    Printf.fprintf out_chan "%s%s\n" pos_line (ST.to_string tbl f);
+    Out_channel.close out_chan
+
+  let close_scope { stack; dumpfile } pos f = match Stack.pop stack with
+    | None -> raise (InternalError "Tried to exit global scope.")
+    | Some tbl -> Option.iter dumpfile (dump_symtbl tbl f pos)
+
+end
+
+module ST = Hash_symtbl
 
 type symtbl = tp_or_id ST.t
 
