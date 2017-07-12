@@ -14,7 +14,6 @@ open Core.Std
 open Lexing
 open Ast
 open Pretty
-open Printf
 
 exception TypeError of string
 exception DeclError of string
