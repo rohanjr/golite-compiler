@@ -20,39 +20,43 @@ exception TypeError of string
 exception DeclError of string
 exception InternalError of string
 
-(*
-   module type Printable = sig
-   type t
-   val to_string : t -> string
-   end
-*)
-
 (* Type of data stored in symbol table *)
 type tp_or_id = Tp of tp | Id of tp | Fn of tp
 
 let string_of_tp_or_id : tp_or_id -> string = function
   | Tp t | Id t | Fn t -> pretty_tp t Zero
-(* TODO encapsulate as Printable module *)
+
+type 'a dump_info = { filename : string; string_of_data : 'a -> string }
 
 module type Symtbl = sig
   type 'a t
   val create : unit -> 'a t
   val add : 'a t -> key:string -> data:'a -> [ `Duplicate | `Ok ]
   val find : 'a t -> string -> 'a option
-  val to_string : 'a t -> ('a -> string) -> string
+  val dump : 'a t -> position -> 'a dump_info -> unit
 end
 
 module Hash_symtbl : Symtbl = struct
+
   type 'a t = 'a String.Table.t
+
   let create () = String.Table.create ()
+
   let add = Hashtbl.add
+
   let find = Hashtbl.find
+
   let to_string tbl f =
     let string_of_binding (sym, v) = sym ^ " -> " ^ f v ^ "\n" in
     Hashtbl.to_alist tbl |> List.map ~f:string_of_binding |> String.concat
-end
 
-type 'a dump_info = { filename : string; string_of_data : 'a -> string }
+  let dump tbl pos {filename; string_of_data} =
+    let out_chan = Out_channel.create ~append:true filename in
+    let pos_line = Printf.sprintf "Scope opened on line %d\n" pos.pos_lnum in
+    Printf.fprintf out_chan "%s%s\n" pos_line (to_string tbl string_of_data);
+    Out_channel.close out_chan
+
+end
 
 module type Symtbl_stack = sig
   type 'a t
@@ -62,6 +66,7 @@ module type Symtbl_stack = sig
   val lookup : 'a t -> string -> 'a option
   val lookup_topmost : 'a t -> string -> 'a option
   val close_scope : 'a t -> position -> unit
+  (* dumps symbol table for closed scope if dump information is present *)
 end
 
 module Make_symtbl_stack(ST : Symtbl) = struct
@@ -84,16 +89,9 @@ module Make_symtbl_stack(ST : Symtbl) = struct
     | None -> raise (InternalError "Tried to look up binding with empty symbol table stack.")
     | Some tbl -> ST.find tbl name
 
-  let dump_symtbl (tbl : 'a ST.t) (pos : position) (info : 'a dump_info) : unit =
-    let { filename; string_of_data } = info in
-    let out_chan = Out_channel.create ~append:true filename in
-    let pos_line = Printf.sprintf "Scope opened on line %d\n" pos.pos_lnum in
-    Printf.fprintf out_chan "%s%s\n" pos_line (ST.to_string tbl string_of_data);
-    Out_channel.close out_chan
-
   let close_scope { stack; info } pos = match Stack.pop stack with
     | None -> raise (InternalError "Tried to exit global scope.")
-    | Some tbl -> Option.iter info (dump_symtbl tbl pos)
+    | Some tbl -> Option.iter info (ST.dump tbl pos)
 
 end
 
@@ -202,11 +200,11 @@ let rec check_prog (dump_filename : string option) : prog -> unit = function
     Prog (pos, _, dl) ->
     let dumpinfo = Option.map dump_filename (fun filename -> {filename; string_of_data = string_of_tp_or_id}) in
     let sts = STS.create dumpinfo in
-    STS.open_scope sts;
-    (* Add predeclared identifiers to global scope *)
+    STS.open_scope sts; (* global scope *)
+    (* Add predeclared identifiers *)
     List.iter primitives ~f:(fun (name, ti) -> STS.add_binding sts name ti);
     List.iter dl (check_topleveldecl sts);
-    STS.close_scope sts pos (* exit global scope and maybe dump the final symbol table *)
+    STS.close_scope sts pos
 
 and check_topleveldecl sts : topleveldecl -> unit = function
   | FuncDecl (pos, i, vslo, tpo, sl) ->
