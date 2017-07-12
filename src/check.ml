@@ -6,7 +6,7 @@
  * Original authors:
  * Rohan Jacob-Rao (rohanjr)
  * Steven Thephsourinthone (stheph)
- * Shawn Otis 
+ * Shawn Otis
  *)
 
 open Core.Std
@@ -52,21 +52,23 @@ module Hash_symtbl : Symtbl = struct
     Hashtbl.to_alist tbl |> List.map ~f:string_of_binding |> String.concat
 end
 
+type 'a dump_info = { filename : string; string_of_data : 'a -> string }
+
 module type Symtbl_stack = sig
   type 'a t
-  val create : dumpfile:string option -> 'a t
+  val create : 'a dump_info option -> 'a t
   val open_scope : 'a t -> unit
   val add_binding : 'a t -> name:string -> data:'a -> unit
   val lookup : 'a t -> string -> 'a option
   val lookup_topmost : 'a t -> string -> 'a option
-  val close_scope : 'a t -> position -> ('a -> string) -> unit
+  val close_scope : 'a t -> position -> unit
 end
 
 module Make_symtbl_stack(ST : Symtbl) = struct
 
-  type 'a t = { stack : 'a ST.t Stack.t; dumpfile : string option }
+  type 'a t = { stack : 'a ST.t Stack.t; info : 'a dump_info option }
 
-  let create dumpfile = { stack = Stack.create (); dumpfile }
+  let create info = { stack = Stack.create (); info }
 
   let open_scope s = Stack.push s.stack (ST.create ())
 
@@ -82,15 +84,16 @@ module Make_symtbl_stack(ST : Symtbl) = struct
     | None -> raise (InternalError "Tried to look up binding with empty symbol table stack.")
     | Some tbl -> ST.find tbl name
 
-  let dump_symtbl (tbl : 'a ST.t) (f : 'a -> string) (pos : position) (filename : string) : unit =
+  let dump_symtbl (tbl : 'a ST.t) (pos : position) (info : 'a dump_info) : unit =
+    let { filename; string_of_data } = info in
     let out_chan = Out_channel.create ~append:true filename in
     let pos_line = Printf.sprintf "Scope opened on line %d\n" pos.pos_lnum in
-    Printf.fprintf out_chan "%s%s\n" pos_line (ST.to_string tbl f);
+    Printf.fprintf out_chan "%s%s\n" pos_line (ST.to_string tbl string_of_data);
     Out_channel.close out_chan
 
-  let close_scope { stack; dumpfile } pos f = match Stack.pop stack with
+  let close_scope { stack; info } pos = match Stack.pop stack with
     | None -> raise (InternalError "Tried to exit global scope.")
-    | Some tbl -> Option.iter dumpfile (dump_symtbl tbl f pos)
+    | Some tbl -> Option.iter info (dump_symtbl tbl pos)
 
 end
 
@@ -98,12 +101,12 @@ module STS = Make_symtbl_stack(Hash_symtbl)
 (*type symtbl_stack = tp_or_id STS.t*)
 
 let rec inner_tp sts : tp -> tp option = function
-  | TypeVar (name, _) -> begin match STS.lookup sts name with 
+  | TypeVar (name, _) -> begin match STS.lookup sts name with
     | Some (Tp t0) -> Some t0
     | _ -> None end
   | _ -> None
 
-and base_tp sts (t : tp) : tp option = match t with 
+and base_tp sts (t : tp) : tp option = match t with
   | TypeVar (name, tor) -> begin match inner_tp sts t with
     | Some (TypeVar (t, tor) as t') -> base_tp sts t'
     | t -> t end
@@ -111,8 +114,8 @@ and base_tp sts (t : tp) : tp option = match t with
 
 let rec remove_underscores il el = match il, el with
   | [], [] -> [], []
-  | i::il', e::el' -> 
-    if i = "_" 
+  | i::il', e::el' ->
+    if i = "_"
     then remove_underscores il' el'
     else let (il'', el'') = remove_underscores il' el' in i::il'', e::el''
   | _ -> raise (InternalError "Unequal list lengths in remove_underscores")
@@ -195,14 +198,15 @@ let primitives : (string * tp_or_id) list =
    ("false", Id Bool)]
 
 (* Typechecking *)
-let rec check_prog (dump_option : string option) : prog -> unit = function
+let rec check_prog (dump_filename : string option) : prog -> unit = function
     Prog (pos, _, dl) ->
-    let sts = STS.create dump_option in
+    let dumpinfo = Option.map dump_filename (fun filename -> {filename; string_of_data = string_of_tp_or_id}) in
+    let sts = STS.create dumpinfo in
     STS.open_scope sts;
     (* Add predeclared identifiers to global scope *)
     List.iter primitives ~f:(fun (name, ti) -> STS.add_binding sts name ti);
     List.iter dl (check_topleveldecl sts);
-    STS.close_scope sts pos string_of_tp_or_id (* exit global scope and maybe dump the final symbol table *)
+    STS.close_scope sts pos (* exit global scope and maybe dump the final symbol table *)
 
 and check_topleveldecl sts : topleveldecl -> unit = function
   | FuncDecl (pos, i, vslo, tpo, sl) ->
@@ -221,7 +225,7 @@ and check_topleveldecl sts : topleveldecl -> unit = function
     (if not (test_tp sts t) then
        raise (TypeError ("Type " ^ pretty_tp t Zero ^ " is undeclared, but is an input type for function " ^ i ^ ".")));
     List.iter sl ~f:(check_stmt sts);
-    STS.close_scope sts pos string_of_tp_or_id;
+    STS.close_scope sts pos;
   | Stmt (pos, s) -> check_stmt sts s
 
 and test_tp sts (t : tp) : bool = match t with
@@ -264,10 +268,10 @@ and check_stmt sts : stmt -> unit = function
 and check_block sts (pos : Lexing.position) (sl : stmt list) : unit =
   STS.open_scope sts;
   List.iter sl ~f:(check_stmt sts);
-  STS.close_scope sts pos string_of_tp_or_id
+  STS.close_scope sts pos
 
 and compare_tps2 sts ((t1, b1) : (tp * bool)) ((t2, b2) : tp * bool) : bool =
-  let b = match base_tp sts t1 with  
+  let b = match base_tp sts t1 with
   | Some (TSlice tp) -> false
   | _ -> b1 && b2 in
   if b then t1 = t2 else compare_tps sts t1 t2
@@ -279,7 +283,7 @@ and check_simplestmt sts : simplestmt -> unit = function
     if numeric sts t then
       (if b then () else raise (TypeError "Invalid inc/dec statement"))
     else raise (TypeError "Incrementing non-numeric type.")
-  | AssignEquals (pos, ll, el) -> (* TODO: If the RHS has identifiers, it must be equal, otherwise, compare *)      
+  | AssignEquals (pos, ll, el) -> (* TODO: If the RHS has identifiers, it must be equal, otherwise, compare *)
       (try List.iter2_exn
              (List.map ll (Fn.compose fst (check_lvalue sts))) (List.map el (Fn.compose fst (check_expr sts)))
              (fun t1 t2 -> if not (compare_tps sts t1 t2) then
@@ -297,19 +301,19 @@ and check_simplestmt sts : simplestmt -> unit = function
                                    " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
        with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
   | AssignVar (pos, op, i, e) -> check_assignop sts op (check_id sts i, true) (check_expr sts e)
-  | ShortVarDecl (pos, il, el, dlor) -> 
+  | ShortVarDecl (pos, il, el, dlor) ->
     let declared = List.map il (fun i -> i = "_" || Option.is_some (STS.lookup_topmost sts i)) in
     dlor := Some declared;
     if List.for_all ~f:Fn.id declared then
       raise (DeclError "All variables in short declaration were already declared")
-    else 
+    else
       let exp_types = List.map el (check_expr sts) in
       (* TODO use zip and handle case of unequal lengths *)
       let combined = List.zip_exn (List.zip_exn il declared) exp_types in
       List.iter combined
         (fun ((i, dec), (t', b)) ->
            if dec then
-             begin		          
+             begin
                match STS.lookup_topmost sts i with
                | Some ti -> let t = id_symb i ti in if compare_tps2 sts (t, true) (t', b) then () else raise (DeclError ("Variable " ^ i ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ ".")) (* TODO: Reanalyse how we compare the types if there is an identifier *)
                | None -> if i = "_" then () else raise (InternalError "A variable is claimed to be inside of the current scope, but it is not")
@@ -330,24 +334,24 @@ and check_declstmt sts : declstmt -> unit = function
 and compare_exp_tp sts (e : expr) (t : tp) : unit =
   let (t', b) = check_expr sts e in  (* TODO: Reverify. Check if any case needs us to actually have the same type *)
    let b' = if b then t = t'
-	    else compare_tps sts t t' in
+     else compare_tps sts t t' in
    (match b' with
    | true -> ()
    | false -> raise (TypeError ("Expression " ^ pretty_expr e Zero ^ " was expected to have type " ^ pretty_tp t Zero ^ " but had type " ^ pretty_tp t' Zero ^ "." )))
 
-and compare_tps sts (t : tp) (t' : tp) : bool = 
+and compare_tps sts (t : tp) (t' : tp) : bool =
   if t = t' then true
   else (match inner_tp sts t with
-	     | Some t0 -> compare_tps sts t0 t'
-	     | None -> (match inner_tp sts t' with
-		     | Some t0 -> compare_tps sts t t0
-		     | None -> false
-		    ))
+     | Some t0 -> compare_tps sts t0 t'
+     | None -> (match inner_tp sts t' with
+     | Some t0 -> compare_tps sts t t0
+     | None -> false
+    ))
 
 and check_varspec sts : varspec -> unit = function
   | VarSpecTp (pos, vss, elo) ->
     let t = check_varspecsimp sts vss in Option.iter elo (List.iter ~f:(fun e -> compare_exp_tp sts e t)) (* TODO: Recheck whether we should compare type *)
-  | VarSpecNoTp (pos, il, el) -> 
+  | VarSpecNoTp (pos, il, el) ->
     try let l = List.zip_exn il el in
       List.iter l
         (fun (i,e) -> let tp = fst (check_expr sts e) in
@@ -376,7 +380,7 @@ and check_tp sts : tp -> unit = function
   end
 | TArray (_, tp) -> check_tp sts tp
 | TSlice tp -> check_tp sts tp
-| TStruct vssl -> 
+| TStruct vssl ->
   let check_varspecsimp sts vss =
     let (vars, t) = vss in check_tp sts t
   in
@@ -388,20 +392,20 @@ and check_ifcond sts : ifcond -> unit = function
 and check_ifstmt sts (ifs : ifstmt) : unit =
   STS.open_scope sts;
   match ifs with
-  | IfOnly (pos, ic, sl) ->       
-      check_ifcond sts ic; 
+  | IfOnly (pos, ic, sl) ->
+      check_ifcond sts ic;
       check_block sts pos sl;
-      STS.close_scope sts pos string_of_tp_or_id
-  | IfElse (pos, ic, sl1, sl2) ->      
+      STS.close_scope sts pos
+  | IfElse (pos, ic, sl1, sl2) ->
       check_ifcond sts ic;
       check_block sts pos sl1;
       check_block sts pos sl2;
-      STS.close_scope sts pos string_of_tp_or_id      
-  | IfElseIf (pos, ic, sl, is) ->      
+      STS.close_scope sts pos
+  | IfElseIf (pos, ic, sl, is) ->
       check_ifcond sts ic;
       check_block sts pos sl;
-      check_ifstmt sts is;      
-      STS.close_scope sts pos string_of_tp_or_id
+      check_ifstmt sts is;
+      STS.close_scope sts pos
 
 and check_switchcond sts : switchcond -> tp * bool = function
   SwitchCond (pos, sso, eo) ->
@@ -423,7 +427,7 @@ and check_switch_expr sts (t : tp) (e : expr) : unit = let (t', _) = check_expr 
                          pretty_tp t Zero ^ " but an expression of type " ^
                          pretty_tp t' Zero ^ " was obtained."))
 
-and first_tp_eccl sts : exprcaseclause list -> (expr * (tp * bool)) option = function 
+and first_tp_eccl sts : exprcaseclause list -> (expr * (tp * bool)) option = function
   | [] -> None
   | ExprCaseClause (_, Case (_, e::tl), _) :: tl' -> Some (e, check_expr sts e)
   | h :: tl -> first_tp_eccl sts tl
@@ -432,7 +436,7 @@ and check_switchstmt sts : switchstmt -> unit = function
   SwitchStmt (pos, sco, eccl) ->
     let (t, b) = Option.value_map sco ~default:(Bool, false) ~f:(check_switchcond sts) in
     let (t, b) = match first_tp_eccl sts eccl with
-    | Some (e, (t', b')) -> (if (compare_tps2 sts (t, b) (t', b)) then (t', b || b') 
+    | Some (e, (t', b')) -> (if (compare_tps2 sts (t, b) (t', b)) then (t', b || b')
          else raise (DeclError ("Expression " ^ pretty_expr e Zero ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ "."))) 
     | None -> (t, b)
 in    
@@ -447,32 +451,32 @@ and check_forstmt sts : forstmt -> unit = function
   | InfLoop (pos, sl) -> 
       STS.open_scope sts;
       List.iter sl (check_stmt sts);
-      STS.close_scope sts pos string_of_tp_or_id
+      STS.close_scope sts pos
   | WhileLoop (pos, e, sl) ->     
       STS.open_scope sts;
       check_cond sts e; 
       List.iter sl (check_stmt sts);
-      STS.close_scope sts pos string_of_tp_or_id
+      STS.close_scope sts pos
   | ForLoop (pos, sso1, eo, sso2, sl) ->
       STS.open_scope sts;      
       Option.iter sso1 (check_simplestmt sts); (* The first arg of the for is only in scope in the loop *)
       Option.iter eo (check_cond sts);
       Option.iter sso2 (check_simplestmt sts);
       List.iter sl (check_stmt sts);
-      STS.close_scope sts pos string_of_tp_or_id
+      STS.close_scope sts pos
 
 and check_printstmt sts : printstmt -> unit = function
   | PrintStmt (pos, elo) | PrintlnStmt (pos, elo) ->
       let check_printable (e : expr) : unit =
-	let rec check_printable_tps t =
-        (begin match t with	
+let rec check_printable_tps t =
+        (begin match t with
         | Int | Float64 | Bool | Rune | String -> ()
-	| TypeVar (i, tor) -> tor := base_tp sts (TypeVar (i, tor));
-	   (match STS.lookup sts i with
-	    | None -> raise (InternalError ("Type identifier " ^ i ^
-					      "should be in symbol table before checking properties."))
-	    | Some ti -> check_printable_tps (tp_symb i ti)
-	   ) 
+| TypeVar (i, tor) -> tor := base_tp sts (TypeVar (i, tor));
+   (match STS.lookup sts i with
+    | None -> raise (InternalError ("Type identifier " ^ i ^
+      "should be in symbol table before checking properties."))
+    | Some ti -> check_printable_tps (tp_symb i ti)
+   ) 
         | _ -> raise (TypeError ("Expression " ^ pretty_expr e Zero ^ " has wrong type for printing."))
         end ) in check_printable_tps (fst (check_expr sts e)) in
       Option.iter ~f:(List.iter ~f:check_printable) elo
@@ -524,12 +528,12 @@ and check_primaryexpr sts : primaryexpr -> tp * bool = function
   | FunApp (pos, pe, el, tor) -> 
      (match pe with 
      | Operand (_, Var (_, i, _) , _) -> (match check_id' sts i with
-	
+
          | Tp t -> (match el with 
-		    | [e] -> check_primaryexpr sts (Cast (pos, t, e, tor))(* Here we have type casting rather than function application *)
-		    | _ -> raise (TypeError ("Expression " ^ pretty_primary pe Zero ^
-					       " is not a function and cannot be applied.")))
-	 | _ -> check_funapp sts (check_primaryexpr sts pe) pe el tor) 
+    | [e] -> check_primaryexpr sts (Cast (pos, t, e, tor))(* Here we have type casting rather than function application *)
+    | _ -> raise (TypeError ("Expression " ^ pretty_primary pe Zero ^
+       " is not a function and cannot be applied.")))
+ | _ -> check_funapp sts (check_primaryexpr sts pe) pe el tor) 
      | _ -> check_funapp sts (check_primaryexpr sts pe) pe el tor)
 
   | Append (pos, i, e, tor) ->
@@ -548,16 +552,16 @@ and check_funapp sts (p : tp * bool) (pe : primaryexpr) (el : expr list) tor: tp
   | (FuncTp (tl, rt), b) ->
      (try List.iter2_exn el tl
             (fun e t -> let (tt, b') = check_expr sts e in if compare_tps2 sts (tt, b') (t, b) then () (* TODO: Should we compare the tps? *)
-						       else raise (TypeError ("Function argument " ^
-										pretty_expr e Zero ^ " has type " ^ pretty_tp tt Zero ^
-										  " but " ^ pretty_primary pe Zero ^ " expected type " ^
-										    pretty_tp t Zero ^ "."))
+       else raise (TypeError ("Function argument " ^
+pretty_expr e Zero ^ " has type " ^ pretty_tp tt Zero ^
+  " but " ^ pretty_primary pe Zero ^ " expected type " ^
+    pretty_tp t Zero ^ "."))
             )
       with Invalid_argument _ ->
         raise (TypeError ("Wrong number of arguments to " ^ pretty_primary pe Zero ^ "."))
      ); tor := Some rt; (rt, true) (* TODO: Should we consider function application as a variable for type aliases? *)
   | _ -> raise (TypeError ("Expression " ^ pretty_primary pe Zero ^
-                             " is not a function and cannot be applied.")) 									   
+                             " is not a function and cannot be applied."))    
 
 and check_operand sts : operand -> (tp * bool) = function
   | Parens (pos, e, tor) -> let (t, b) = check_expr sts e in tor := Some t; (t,b)
@@ -574,19 +578,19 @@ and vss_lookup (i : id) (vss : varspecsimp) : tp option = match vss with
 and struct_lookup (i : id) (vssl : varspecsimp list) : tp = match vssl with
   | [] -> raise (TypeError ("Expected field " ^ i ^ "in structure " ^ pretty_varspecsimp_list vssl Zero ^ "."))
   | vss :: vssl -> (match vss_lookup i vss with
-		| Some t -> t
-		| None -> struct_lookup i vssl)
-		 
+| Some t -> t
+| None -> struct_lookup i vssl)
+ 
 and check_fieldsel sts (pe : primaryexpr) (i : id) (tor : tp option ref) : tp * bool =
   let (t, b) = check_primaryexpr sts pe in
   let rec inner t = (match t with
     | TStruct vssl -> let t' = struct_lookup i vssl in tor := Some t'; t'
     | TypeVar (i, tor) -> tor := base_tp sts (TypeVar (i, tor)); let tio = STS.lookup sts i in (match tio with
-					     | None -> raise (TypeError ("Primary Expression " ^ pretty_primary pe Zero ^ " should have type " ^ i ^ ", but type " ^ i ^ " is not in the current scope."))
-					     | Some ti -> let t = tp_symb i ti in inner t)
+     | None -> raise (TypeError ("Primary Expression " ^ pretty_primary pe Zero ^ " should have type " ^ i ^ ", but type " ^ i ^ " is not in the current scope."))
+     | Some ti -> let t = tp_symb i ti in inner t)
     | _ -> raise (TypeError ("Tried to access field of non-struct expression "
                              ^ pretty_primary pe Zero ^ ".")))
-		      in (inner t, b) (* TODO: Reverify whether it should be b *)
+      in (inner t, b) (* TODO: Reverify whether it should be b *)
 
 and check_arrayaccess sts (pe : primaryexpr) (e : expr) (tor : tp option ref) : tp * bool =
   match check_primaryexpr sts pe with
@@ -614,12 +618,12 @@ and check_slice sts (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (
 and check_slicecap sts (pe : primaryexpr) (eo : expr option) (e1 : expr) (e2 : expr) (tor : tp option ref) : tp * bool =
   let (t, b) = check_primaryexpr sts pe in match base_tp sts t with
   | Some TArray (_, t) | Some TSlice t -> let f e =
-					    (match check_expr sts e with
-					     | (Int, b') -> () 
-					     | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
-									pretty_expr e Zero ^ "."))
-					    ) in
-					  Option.iter eo f; f e1; f e2; tor := Some (TSlice t); (TSlice t, b)
+    (match check_expr sts e with
+     | (Int, b') -> () 
+     | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
+pretty_expr e Zero ^ "."))
+    ) in
+  Option.iter eo f; f e1; f e2; tor := Some (TSlice t); (TSlice t, b)
   | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
                              ^ pretty_primary pe Zero ^ "."))
 
@@ -685,9 +689,9 @@ and check_id sts : id -> tp = fun name ->
   match STS.lookup sts name with
     | None -> raise (TypeError ("Identifier " ^ name ^ " undeclared."))
     | Some ti -> match ti with 
-		 | Id t -> t
-		 | Fn t -> t
-		 | _ -> raise (TypeError ("1.A Var or Fn was expected, but " ^ name ^ " was received, which is a type."))
+ | Id t -> t
+ | Fn t -> t
+ | _ -> raise (TypeError ("1.A Var or Fn was expected, but " ^ name ^ " was received, which is a type."))
 
 and check_id' sts : id -> tp_or_id = fun name -> 
   match STS.lookup sts name with
