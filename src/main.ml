@@ -6,7 +6,7 @@
  * Original authors:
  * Rohan Jacob-Rao (rohanjr)
  * Steven Thephsourinthone (stheph)
- * Shawn Otis 
+ * Shawn Otis
  *)
 
 open Core.Std
@@ -67,15 +67,15 @@ let go_basename_exn (go_fname : string) : string =
 
 let () = try
     match get_op_mode Sys.argv with
-    | Info Help -> fprintf stdout 
-                     "Name: Group15 GoLite -> C Compiler\nSynopsis: ./main.native [option]... [file]\nDescription: Compile GoLite code into C11.\n-dumpsymtab : Dump the symbol table while compiling.\n-pptype : Pretty print with types.\n-nopretty : Suppress the creation of a pretty printed file.\n-nocompile : Suppress the compilation (for debug).\n--help, -h : Help.\n--version, -v : Compiler version.\n" 
+    | Info Help -> fprintf stdout
+                     "Name: Group15 GoLite -> C Compiler\nSynopsis: ./main.native [option]... [file]\nDescription: Compile GoLite code into C11.\n-dumpsymtab : Dump the symbol table while compiling.\n-pptype : Pretty print with types.\n-nopretty : Suppress the creation of a pretty printed file.\n-nocompile : Suppress the compilation (for debug).\n--help, -h : Help.\n--version, -v : Compiler version.\n"
     | Info Version -> fprintf stdout "Group15 GoLite v1 -> C11 Compiler v1\n"
     | Compile (None, _) -> failwith "No input file to compile"
     | Compile (Some fname, out_mode) -> begin
         let basename = go_basename_exn fname in
         let lexbuf = Lexing.from_channel (open_in fname) in
         lexbuf.lex_curr_p <- {lexbuf.lex_curr_p with pos_fname = fname};
-        let p = Goparse.prog Golex.token lexbuf in 
+        let p = Goparse.prog Golex.token lexbuf in
         let weeded_one = Weeder.ForSwitchWeeding.weed p in
         (if out_mode.pp_mode = PP_no_types then
           let oc = open_out (basename ^ ".pretty.go") in

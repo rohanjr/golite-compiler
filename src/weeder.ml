@@ -6,7 +6,7 @@
  * Original authors:
  * Rohan Jacob-Rao (rohanjr)
  * Steven Thephsourinthone (stheph)
- * Shawn Otis 
+ * Shawn Otis
  *)
 
 open Ast
@@ -319,24 +319,24 @@ module ReturnWeeding = struct
       (* Check if this is valid, void function must not have a return statement *)
       let ret_list = List.map (fun s -> weed_stmt rtype s) ss in
       if List.mem true ret_list then ()
-      else if rtype = Void then ()    	 
-      else raise (Check.TypeError (id ^ " contains a branch missing a return statement"))			
+      else if rtype = Void then ()
+      else raise (Check.TypeError (id ^ " contains a branch missing a return statement"))
     | Stmt (pos, s) -> ()
 
   and weed_stmt (t : tp) (s : stmt) : bool = match s with
     | Decl (pos, ds) -> false
     | Simple (pos, ss) -> false
-    | Return (pos, e) ->			
+    | Return (pos, e) ->
       let (e', t') = begin match e with
         | None -> (None, Void)
-        | Some e'' -> (Some e'', tp_of_expr e'') 
+        | Some e'' -> (Some e'', tp_of_expr e'')
       end in
-      if t = Void then 				
+      if t = Void then
         begin match e' with
         | None -> true
         | Some _ -> raise (WeedError "Return with value in function with no return type")
-        end				
-      else if t = t' then true		
+        end
+      else if t = t' then true
       else raise (WeedError "Type mismatch in return statement.")
     | Break pos -> false
     | Continue pos -> false
@@ -354,15 +354,15 @@ module ReturnWeeding = struct
   (* If there is no default, trivially false *)
   and weed_switchstmt (t :tp) (ss : switchstmt) : bool =
     let SwitchStmt (_, _, eccl) = ss in
-    if (List.mem 1 
-          (List.map 
-             (fun x -> let ExprCaseClause (_, esc,_) = x in 
-               begin 
-                 match esc with 
-                 | Case _ -> 0 
-                 | Default _ -> 1 
+    if (List.mem 1
+          (List.map
+             (fun x -> let ExprCaseClause (_, esc,_) = x in
+               begin
+                 match esc with
+                 | Case _ -> 0
+                 | Default _ -> 1
                end
-             ) 
+             )
              eccl)
        ) then
       List.fold_left (fun a b -> a && b) true (List.map (weed_exprcaseclause t) eccl)
