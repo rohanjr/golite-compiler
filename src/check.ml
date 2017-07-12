@@ -21,10 +21,10 @@ exception DeclError of string
 exception InternalError of string
 
 (*
-module type Printable = sig
-  type t
-  val to_string : t -> string
-end
+   module type Printable = sig
+   type t
+   val to_string : t -> string
+   end
 *)
 
 (* Type of data stored in symbol table *)
@@ -143,11 +143,11 @@ let id_symb i ti = match ti with
 let rec comparable sts : tp -> bool = function
   | Bool | Int | Float64 | Rune | String -> true
   | TypeVar (i, tor) -> tor := (base_tp sts (TypeVar (i, tor)));
-      (match STS.lookup sts i with
-       | None -> raise (InternalError ("Type identifier " ^ i ^
-                        "should be in symbol table before checking properties."))
-       | Some ti -> comparable sts (tp_symb i ti)
-      )
+    (match STS.lookup sts i with
+     | None -> raise (InternalError ("Type identifier " ^ i ^
+                                     "should be in symbol table before checking properties."))
+     | Some ti -> comparable sts (tp_symb i ti)
+    )
   | TStruct vssl -> List.for_all vssl ~f:(fun x -> let (idl, t) = x in comparable sts t)
   | TArray (n, t) -> comparable sts t
   | TSlice _ -> false
@@ -158,11 +158,11 @@ let rec ordered sts : tp -> bool = function
   | Bool -> false
   | Int | Float64 | Rune | String -> true
   | TypeVar (i, tor) -> tor := (base_tp sts (TypeVar (i, tor)));
-      (match STS.lookup sts i with
-       | None -> raise (InternalError ("Type identifier " ^ i ^
-                        "should be in symbol table before checking properties."))
-       | Some ti -> ordered sts (tp_symb i ti)
-      )
+    (match STS.lookup sts i with
+     | None -> raise (InternalError ("Type identifier " ^ i ^
+                                     "should be in symbol table before checking properties."))
+     | Some ti -> ordered sts (tp_symb i ti)
+    )
   | TStruct _ | TArray _ | TSlice _ | FuncTp _ | Void -> false (* TODO verify if Void is ordered *)
 
 let rec numeric sts : tp -> bool = function
@@ -272,8 +272,8 @@ and check_block sts (pos : Lexing.position) (sl : stmt list) : unit =
 
 and compare_tps2 sts ((t1, b1) : (tp * bool)) ((t2, b2) : tp * bool) : bool =
   let b = match base_tp sts t1 with
-  | Some (TSlice tp) -> false
-  | _ -> b1 && b2 in
+    | Some (TSlice tp) -> false
+    | _ -> b1 && b2 in
   if b then t1 = t2 else compare_tps sts t1 t2
 
 and check_simplestmt sts : simplestmt -> unit = function
@@ -284,22 +284,22 @@ and check_simplestmt sts : simplestmt -> unit = function
       (if b then () else raise (TypeError "Invalid inc/dec statement"))
     else raise (TypeError "Incrementing non-numeric type.")
   | AssignEquals (pos, ll, el) -> (* TODO: If the RHS has identifiers, it must be equal, otherwise, compare *)
-      (try List.iter2_exn
-             (List.map ll (Fn.compose fst (check_lvalue sts))) (List.map el (Fn.compose fst (check_expr sts)))
-             (fun t1 t2 -> if not (compare_tps sts t1 t2) then
-                 raise (DeclError ("Cannot assign expression of type " ^ pretty_tp t2 Zero ^
-                                                 " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
-       with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
+    (try List.iter2_exn
+           (List.map ll (Fn.compose fst (check_lvalue sts))) (List.map el (Fn.compose fst (check_expr sts)))
+           (fun t1 t2 -> if not (compare_tps sts t1 t2) then
+               raise (DeclError ("Cannot assign expression of type " ^ pretty_tp t2 Zero ^
+                                 " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
+     with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
   | Assign (pos, op, l, e) -> check_assignop sts op (check_lvalue sts l) (check_expr sts e)
   | AssignVarEquals (pos, il, el) -> (* TODO: Reverify. If the RHS has identifiers, it must be equal, otherwise, compare *)
-      let il, el = remove_underscores il el in
-      (try List.iter2_exn
-             (List.map il (check_id sts)) (List.map el (check_expr sts))
-             (fun t1 p2 -> if not (compare_tps2 sts (t1, true) p2) then
-             (* TODO: Reverify. Here, we consider that the LHS has an id, and thus it can be comparable iff the RHS has no id, equal otherwise *)
-                 raise (DeclError ("Cannot assign expression of type " ^ pretty_tp (fst p2) Zero ^
-                                   " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
-       with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
+    let il, el = remove_underscores il el in
+    (try List.iter2_exn
+           (List.map il (check_id sts)) (List.map el (check_expr sts))
+           (fun t1 p2 -> if not (compare_tps2 sts (t1, true) p2) then
+               (* TODO: Reverify. Here, we consider that the LHS has an id, and thus it can be comparable iff the RHS has no id, equal otherwise *)
+               raise (DeclError ("Cannot assign expression of type " ^ pretty_tp (fst p2) Zero ^
+                                 " to lvalue of type " ^ pretty_tp t1 Zero ^ ".")))
+     with Invalid_argument _ -> raise (DeclError "Tried to assign list of expressions to list of different length."))
   | AssignVar (pos, op, i, e) -> check_assignop sts op (check_id sts i, true) (check_expr sts e)
   | ShortVarDecl (pos, il, el, dlor) ->
     let declared = List.map il (fun i -> i = "_" || Option.is_some (STS.lookup_topmost sts i)) in
@@ -333,19 +333,19 @@ and check_declstmt sts : declstmt -> unit = function
 (* This function tests if e has expected type t, raises an error if it doesn't *)
 and compare_exp_tp sts (e : expr) (t : tp) : unit =
   let (t', b) = check_expr sts e in  (* TODO: Reverify. Check if any case needs us to actually have the same type *)
-   let b' = if b then t = t'
-     else compare_tps sts t t' in
-   (match b' with
+  let b' = if b then t = t'
+    else compare_tps sts t t' in
+  (match b' with
    | true -> ()
    | false -> raise (TypeError ("Expression " ^ pretty_expr e Zero ^ " was expected to have type " ^ pretty_tp t Zero ^ " but had type " ^ pretty_tp t' Zero ^ "." )))
 
 and compare_tps sts (t : tp) (t' : tp) : bool =
   if t = t' then true
   else (match inner_tp sts t with
-     | Some t0 -> compare_tps sts t0 t'
-     | None -> (match inner_tp sts t' with
-     | Some t0 -> compare_tps sts t t0
-     | None -> false
+    | Some t0 -> compare_tps sts t0 t'
+    | None -> (match inner_tp sts t' with
+      | Some t0 -> compare_tps sts t t0
+      | None -> false
     ))
 
 and check_varspec sts : varspec -> unit = function
@@ -370,45 +370,45 @@ and check_typespec sts : typespec -> unit = function
       raise (TypeError ("Created alias " ^ name ^ " for type " ^ pretty_tp t Zero ^ ", but t is undeclared."))
 
 and check_tp sts : tp -> unit = function
-| Int | Float64 | Bool | Rune | String | Void -> ()
-| FuncTp (_, tp) -> check_tp sts tp
-| TypeVar (id, tor) ->
-  tor := base_tp sts (TypeVar (id, tor));
-  begin match STS.lookup sts id with
-  | None -> raise (TypeError "Type alias of undeclared type")
-  | Some ti -> check_tp sts (tp_symb id ti)
-  end
-| TArray (_, tp) -> check_tp sts tp
-| TSlice tp -> check_tp sts tp
-| TStruct vssl ->
-  let check_varspecsimp sts vss =
-    let (vars, t) = vss in check_tp sts t
-  in
-  List.iter vssl (check_varspecsimp sts)
+  | Int | Float64 | Bool | Rune | String | Void -> ()
+  | FuncTp (_, tp) -> check_tp sts tp
+  | TypeVar (id, tor) ->
+    tor := base_tp sts (TypeVar (id, tor));
+    begin match STS.lookup sts id with
+    | None -> raise (TypeError "Type alias of undeclared type")
+    | Some ti -> check_tp sts (tp_symb id ti)
+    end
+  | TArray (_, tp) -> check_tp sts tp
+  | TSlice tp -> check_tp sts tp
+  | TStruct vssl ->
+    let check_varspecsimp sts vss =
+      let (vars, t) = vss in check_tp sts t
+    in
+    List.iter vssl (check_varspecsimp sts)
 
 and check_ifcond sts : ifcond -> unit = function
-  IfCond (pos, sso, e) -> Option.iter sso (check_simplestmt sts); check_cond sts e
+    IfCond (pos, sso, e) -> Option.iter sso (check_simplestmt sts); check_cond sts e
 
 and check_ifstmt sts (ifs : ifstmt) : unit =
   STS.open_scope sts;
   match ifs with
   | IfOnly (pos, ic, sl) ->
-      check_ifcond sts ic;
-      check_block sts pos sl;
-      STS.close_scope sts pos
+    check_ifcond sts ic;
+    check_block sts pos sl;
+    STS.close_scope sts pos
   | IfElse (pos, ic, sl1, sl2) ->
-      check_ifcond sts ic;
-      check_block sts pos sl1;
-      check_block sts pos sl2;
-      STS.close_scope sts pos
+    check_ifcond sts ic;
+    check_block sts pos sl1;
+    check_block sts pos sl2;
+    STS.close_scope sts pos
   | IfElseIf (pos, ic, sl, is) ->
-      check_ifcond sts ic;
-      check_block sts pos sl;
-      check_ifstmt sts is;
-      STS.close_scope sts pos
+    check_ifcond sts ic;
+    check_block sts pos sl;
+    check_ifstmt sts is;
+    STS.close_scope sts pos
 
 and check_switchcond sts : switchcond -> tp * bool = function
-  SwitchCond (pos, sso, eo) ->
+    SwitchCond (pos, sso, eo) ->
     Option.iter sso (check_simplestmt sts);
     let (tp, b) = Option.value_map eo ~default:(Bool, false) ~f:(check_expr sts) in
     if comparable sts tp then (tp, b)
@@ -433,74 +433,74 @@ and first_tp_eccl sts : exprcaseclause list -> (expr * (tp * bool)) option = fun
   | h :: tl -> first_tp_eccl sts tl
 
 and check_switchstmt sts : switchstmt -> unit = function
-  SwitchStmt (pos, sco, eccl) ->
+    SwitchStmt (pos, sco, eccl) ->
     let (t, b) = Option.value_map sco ~default:(Bool, false) ~f:(check_switchcond sts) in
     let (t, b) = match first_tp_eccl sts eccl with
-    | Some (e, (t', b')) -> (if (compare_tps2 sts (t, b) (t', b)) then (t', b || b')
-         else raise (DeclError ("Expression " ^ pretty_expr e Zero ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ "."))) 
-    | None -> (t, b)
-in    
+      | Some (e, (t', b')) -> (if (compare_tps2 sts (t, b) (t', b)) then (t', b || b')
+                               else raise (DeclError ("Expression " ^ pretty_expr e Zero ^ " is expected to have type " ^ pretty_tp t Zero ^ " but is assigned type " ^ pretty_tp t' Zero ^ ".")))
+      | None -> (t, b)
+    in
     List.iter eccl (check_expr_clause sts (t, b))
 
-and check_cond sts (e : expr) : unit = 
+and check_cond sts (e : expr) : unit =
   let (t, b) = check_expr sts e in
-  if compare_tps sts Bool t then () 
+  if compare_tps sts Bool t then ()
   else raise (TypeError ("Expected condition of type Bool, but received condition \"" ^ pretty_expr e Zero ^ "\" of type " ^ pretty_tp t Zero ^ "."))
 
 and check_forstmt sts : forstmt -> unit = function
-  | InfLoop (pos, sl) -> 
-      STS.open_scope sts;
-      List.iter sl (check_stmt sts);
-      STS.close_scope sts pos
-  | WhileLoop (pos, e, sl) ->     
-      STS.open_scope sts;
-      check_cond sts e; 
-      List.iter sl (check_stmt sts);
-      STS.close_scope sts pos
+  | InfLoop (pos, sl) ->
+    STS.open_scope sts;
+    List.iter sl (check_stmt sts);
+    STS.close_scope sts pos
+  | WhileLoop (pos, e, sl) ->
+    STS.open_scope sts;
+    check_cond sts e;
+    List.iter sl (check_stmt sts);
+    STS.close_scope sts pos
   | ForLoop (pos, sso1, eo, sso2, sl) ->
-      STS.open_scope sts;      
-      Option.iter sso1 (check_simplestmt sts); (* The first arg of the for is only in scope in the loop *)
-      Option.iter eo (check_cond sts);
-      Option.iter sso2 (check_simplestmt sts);
-      List.iter sl (check_stmt sts);
-      STS.close_scope sts pos
+    STS.open_scope sts;
+    Option.iter sso1 (check_simplestmt sts); (* The first arg of the for is only in scope in the loop *)
+    Option.iter eo (check_cond sts);
+    Option.iter sso2 (check_simplestmt sts);
+    List.iter sl (check_stmt sts);
+    STS.close_scope sts pos
 
 and check_printstmt sts : printstmt -> unit = function
   | PrintStmt (pos, elo) | PrintlnStmt (pos, elo) ->
-      let check_printable (e : expr) : unit =
-let rec check_printable_tps t =
+    let check_printable (e : expr) : unit =
+      let rec check_printable_tps t =
         (begin match t with
-        | Int | Float64 | Bool | Rune | String -> ()
-| TypeVar (i, tor) -> tor := base_tp sts (TypeVar (i, tor));
-   (match STS.lookup sts i with
-    | None -> raise (InternalError ("Type identifier " ^ i ^
-      "should be in symbol table before checking properties."))
-    | Some ti -> check_printable_tps (tp_symb i ti)
-   ) 
-        | _ -> raise (TypeError ("Expression " ^ pretty_expr e Zero ^ " has wrong type for printing."))
-        end ) in check_printable_tps (fst (check_expr sts e)) in
-      Option.iter ~f:(List.iter ~f:check_printable) elo
+           | Int | Float64 | Bool | Rune | String -> ()
+           | TypeVar (i, tor) -> tor := base_tp sts (TypeVar (i, tor));
+             (match STS.lookup sts i with
+              | None -> raise (InternalError ("Type identifier " ^ i ^
+                                              "should be in symbol table before checking properties."))
+              | Some ti -> check_printable_tps (tp_symb i ti)
+             )
+           | _ -> raise (TypeError ("Expression " ^ pretty_expr e Zero ^ " has wrong type for printing."))
+         end ) in check_printable_tps (fst (check_expr sts e)) in
+    Option.iter ~f:(List.iter ~f:check_printable) elo
 
 and check_expr sts e = match e with
   | Unary (pos, ue, tor) ->  let (t, b) = check_unaryexpr sts ue in tor := Some t; (t,b)
   | Binary (pos, op, e1, e2, tor) ->
-      let (t1, b1) = check_expr sts e1 in
-      let (t2, b2) = check_expr sts e2 in
-      if (((not b1 || not b2) && compare_tps sts t1 t2) || t1 = t2) then (* TODO: Should we compare the types or should they be equal? *)
+    let (t1, b1) = check_expr sts e1 in
+    let (t2, b2) = check_expr sts e2 in
+    if (((not b1 || not b2) && compare_tps sts t1 t2) || t1 = t2) then (* TODO: Should we compare the types or should they be equal? *)
       let (t, b) = check_binop sts op (t1, b1) (t2, b2) in tor := Some t; (t, b) (* TODO: modify check_binop *)
-      else raise (TypeError ("Tried to perform binary operation " ^ pretty_binop op ^ " on arguments " ^
-                             pretty_expr e1 Zero  ^ " and " ^ pretty_expr e2 Zero ^ " of different types, "
-                             ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ ", at " ^
-                             sprintf "%s:%d:%d" pos.pos_fname pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1) ^ "."))
+    else raise (TypeError ("Tried to perform binary operation " ^ pretty_binop op ^ " on arguments " ^
+                           pretty_expr e1 Zero  ^ " and " ^ pretty_expr e2 Zero ^ " of different types, "
+                           ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ ", at " ^
+                           sprintf "%s:%d:%d" pos.pos_fname pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1) ^ "."))
 
 
 and check_unaryexpr sts : unaryexpr -> (tp * bool) = function
   | Primary (pos, pe, tor)  ->
-     let (t, b) = check_primaryexpr sts pe in
-      tor := Some t; (t, b)
+    let (t, b) = check_primaryexpr sts pe in
+    tor := Some t; (t, b)
   | UnaryOp (pos, op, ue, tor) ->
-     let (t, b) = (check_uop sts op (check_unaryexpr sts ue)) in
-      tor := Some t; (t, b)
+    let (t, b) = (check_uop sts op (check_unaryexpr sts ue)) in
+    tor := Some t; (t, b)
 
 and check_primaryexpr sts : primaryexpr -> tp * bool = function
   | Operand (pos, o, tor) -> let (t, b) = check_operand sts o in tor := Some t; (t, b)
@@ -508,60 +508,60 @@ and check_primaryexpr sts : primaryexpr -> tp * bool = function
   | ArrAccess (pos, pe, e, tor) -> check_arrayaccess sts pe e tor
   | Slice (pos, pe, eo1, eo2, tor) -> check_slice sts pe eo1 eo2 tor
   | SliceCap (pos, pe, eo, e1, e2, tor) -> check_slicecap sts pe eo e1 e2 tor
-  | Cast (pos, t, e, tor) -> 
-     let rec castable t = match t with
+  | Cast (pos, t, e, tor) ->
+    let rec castable t = match t with
       | Int -> ()
       | Float64 -> ()
       | Bool -> ()
       | Rune -> ()
-      | TypeVar (i, tor) -> tor := base_tp sts (TypeVar (i, tor));         
-        let nt = STS.lookup sts i in        
+      | TypeVar (i, tor) -> tor := base_tp sts (TypeVar (i, tor));
+        let nt = STS.lookup sts i in
         (match nt with
-          | None -> raise (TypeError ("Type of " ^ i ^" not found"))
-          | Some typ -> castable (tp_symb i typ)
+         | None -> raise (TypeError ("Type of " ^ i ^" not found"))
+         | Some typ -> castable (tp_symb i typ)
         )
       | _ -> raise (TypeError ("Casting expression " ^ pretty_expr e Zero ^ " with type " ^ pretty_tp t Zero ^ " which is not a proper casting type."))
     in castable t;
     let (t', b') = check_expr sts e in
     castable (t'); (* TODO: Reverify this, especially b' *)
-    tor := Some t; (t, b') 
-  | FunApp (pos, pe, el, tor) -> 
-     (match pe with 
+    tor := Some t; (t, b')
+  | FunApp (pos, pe, el, tor) ->
+    (match pe with
      | Operand (_, Var (_, i, _) , _) -> (match check_id' sts i with
 
-         | Tp t -> (match el with 
-    | [e] -> check_primaryexpr sts (Cast (pos, t, e, tor))(* Here we have type casting rather than function application *)
-    | _ -> raise (TypeError ("Expression " ^ pretty_primary pe Zero ^
-       " is not a function and cannot be applied.")))
- | _ -> check_funapp sts (check_primaryexpr sts pe) pe el tor) 
+       | Tp t -> (match el with
+         | [e] -> check_primaryexpr sts (Cast (pos, t, e, tor))(* Here we have type casting rather than function application *)
+         | _ -> raise (TypeError ("Expression " ^ pretty_primary pe Zero ^
+                                  " is not a function and cannot be applied.")))
+       | _ -> check_funapp sts (check_primaryexpr sts pe) pe el tor)
      | _ -> check_funapp sts (check_primaryexpr sts pe) pe el tor)
 
   | Append (pos, i, e, tor) ->
-      (match base_tp sts (check_id sts i) with
-         | Some (TSlice t) ->
-             let (tt, b) = check_expr sts e in
-             if compare_tps sts tt t then (tor := Some (TSlice t); (TSlice t, true)) (* TODO: Reverify compare and whether we should have true *)
-             else raise (TypeError ("Append to " ^ i ^ " of type Slice<" ^
-                                    pretty_tp t Zero ^ "> requires expression of type " ^
-                                    pretty_tp t Zero ^ " but received " ^ pretty_expr e Zero ^
-                                    " of type " ^ pretty_tp tt Zero ^ "."))
-         | _ -> raise (TypeError ("Tried to append to identifier " ^ i ^ " of non-slice type."))
-      )
+    (match base_tp sts (check_id sts i) with
+     | Some (TSlice t) ->
+       let (tt, b) = check_expr sts e in
+       if compare_tps sts tt t then (tor := Some (TSlice t); (TSlice t, true)) (* TODO: Reverify compare and whether we should have true *)
+       else raise (TypeError ("Append to " ^ i ^ " of type Slice<" ^
+                              pretty_tp t Zero ^ "> requires expression of type " ^
+                              pretty_tp t Zero ^ " but received " ^ pretty_expr e Zero ^
+                              " of type " ^ pretty_tp tt Zero ^ "."))
+     | _ -> raise (TypeError ("Tried to append to identifier " ^ i ^ " of non-slice type."))
+    )
 
 and check_funapp sts (p : tp * bool) (pe : primaryexpr) (el : expr list) tor: tp * bool = match p with
   | (FuncTp (tl, rt), b) ->
-     (try List.iter2_exn el tl
-            (fun e t -> let (tt, b') = check_expr sts e in if compare_tps2 sts (tt, b') (t, b) then () (* TODO: Should we compare the tps? *)
-       else raise (TypeError ("Function argument " ^
-pretty_expr e Zero ^ " has type " ^ pretty_tp tt Zero ^
-  " but " ^ pretty_primary pe Zero ^ " expected type " ^
-    pretty_tp t Zero ^ "."))
-            )
-      with Invalid_argument _ ->
-        raise (TypeError ("Wrong number of arguments to " ^ pretty_primary pe Zero ^ "."))
-     ); tor := Some rt; (rt, true) (* TODO: Should we consider function application as a variable for type aliases? *)
+    (try List.iter2_exn el tl
+           (fun e t -> let (tt, b') = check_expr sts e in if compare_tps2 sts (tt, b') (t, b) then () (* TODO: Should we compare the tps? *)
+             else raise (TypeError ("Function argument " ^
+                                    pretty_expr e Zero ^ " has type " ^ pretty_tp tt Zero ^
+                                    " but " ^ pretty_primary pe Zero ^ " expected type " ^
+                                    pretty_tp t Zero ^ "."))
+           )
+     with Invalid_argument _ ->
+       raise (TypeError ("Wrong number of arguments to " ^ pretty_primary pe Zero ^ "."))
+    ); tor := Some rt; (rt, true) (* TODO: Should we consider function application as a variable for type aliases? *)
   | _ -> raise (TypeError ("Expression " ^ pretty_primary pe Zero ^
-                             " is not a function and cannot be applied."))    
+                           " is not a function and cannot be applied."))
 
 and check_operand sts : operand -> (tp * bool) = function
   | Parens (pos, e, tor) -> let (t, b) = check_expr sts e in tor := Some t; (t,b)
@@ -578,19 +578,19 @@ and vss_lookup (i : id) (vss : varspecsimp) : tp option = match vss with
 and struct_lookup (i : id) (vssl : varspecsimp list) : tp = match vssl with
   | [] -> raise (TypeError ("Expected field " ^ i ^ "in structure " ^ pretty_varspecsimp_list vssl Zero ^ "."))
   | vss :: vssl -> (match vss_lookup i vss with
-| Some t -> t
-| None -> struct_lookup i vssl)
- 
+    | Some t -> t
+    | None -> struct_lookup i vssl)
+
 and check_fieldsel sts (pe : primaryexpr) (i : id) (tor : tp option ref) : tp * bool =
   let (t, b) = check_primaryexpr sts pe in
   let rec inner t = (match t with
     | TStruct vssl -> let t' = struct_lookup i vssl in tor := Some t'; t'
     | TypeVar (i, tor) -> tor := base_tp sts (TypeVar (i, tor)); let tio = STS.lookup sts i in (match tio with
-     | None -> raise (TypeError ("Primary Expression " ^ pretty_primary pe Zero ^ " should have type " ^ i ^ ", but type " ^ i ^ " is not in the current scope."))
-     | Some ti -> let t = tp_symb i ti in inner t)
+      | None -> raise (TypeError ("Primary Expression " ^ pretty_primary pe Zero ^ " should have type " ^ i ^ ", but type " ^ i ^ " is not in the current scope."))
+      | Some ti -> let t = tp_symb i ti in inner t)
     | _ -> raise (TypeError ("Tried to access field of non-struct expression "
                              ^ pretty_primary pe Zero ^ ".")))
-      in (inner t, b) (* TODO: Reverify whether it should be b *)
+  in (inner t, b) (* TODO: Reverify whether it should be b *)
 
 and check_arrayaccess sts (pe : primaryexpr) (e : expr) (tor : tp option ref) : tp * bool =
   match check_primaryexpr sts pe with
@@ -604,96 +604,96 @@ and check_arrayaccess sts (pe : primaryexpr) (e : expr) (tor : tp option ref) : 
 
 and check_slice sts (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (tor : tp option ref) : tp * bool =
   let (t, b) = check_primaryexpr sts pe in match base_tp sts t with
-     | Some TArray (_, t) | Some TSlice t ->
-         let f = Option.iter
-           ~f:(fun e -> (match check_expr sts e with
-              | (Int, b') -> () 
-              | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
-                            pretty_expr e Zero ^ ".")))
-            ) in
-      f eo1; f eo2; tor := Some (TSlice t); (TSlice t, b)
-     | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
-                              ^ pretty_primary pe Zero ^ "."))
+  | Some TArray (_, t) | Some TSlice t ->
+    let f = Option.iter
+              ~f:(fun e -> (match check_expr sts e with
+                | (Int, b') -> ()
+                | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
+                                         pretty_expr e Zero ^ ".")))
+              ) in
+    f eo1; f eo2; tor := Some (TSlice t); (TSlice t, b)
+  | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
+                           ^ pretty_primary pe Zero ^ "."))
 
 and check_slicecap sts (pe : primaryexpr) (eo : expr option) (e1 : expr) (e2 : expr) (tor : tp option ref) : tp * bool =
   let (t, b) = check_primaryexpr sts pe in match base_tp sts t with
   | Some TArray (_, t) | Some TSlice t -> let f e =
-    (match check_expr sts e with
-     | (Int, b') -> () 
-     | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
-pretty_expr e Zero ^ "."))
-    ) in
-  Option.iter eo f; f e1; f e2; tor := Some (TSlice t); (TSlice t, b)
+                                            (match check_expr sts e with
+                                             | (Int, b') -> ()
+                                             | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
+                                                                      pretty_expr e Zero ^ "."))
+                                            ) in
+    Option.iter eo f; f e1; f e2; tor := Some (TSlice t); (TSlice t, b)
   | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
-                             ^ pretty_primary pe Zero ^ "."))
+                           ^ pretty_primary pe Zero ^ "."))
 
 and check_uop sts (op : uop) ((t, b) : tp * bool) : tp * bool = match op with
   | UPlus | UMinus ->
-      if numeric sts t then (t, b)
-      else raise (TypeError ("Unary operator " ^ pretty_uop op ^
-                             " requires a numeric expression but was provided one of type "
-                             ^ pretty_tp t Zero ^ "."))
+    if numeric sts t then (t, b)
+    else raise (TypeError ("Unary operator " ^ pretty_uop op ^
+                           " requires a numeric expression but was provided one of type "
+                           ^ pretty_tp t Zero ^ "."))
   | LNot ->
-      if compare_tps sts t Bool then (t, b)  (* TODO: Should we compare the tps? *)
-      else raise (TypeError ("Unary operator " ^ pretty_uop op ^
-                             " requires a bool but was provided a "
-                             ^ pretty_tp t Zero ^ "."))
+    if compare_tps sts t Bool then (t, b)  (* TODO: Should we compare the tps? *)
+    else raise (TypeError ("Unary operator " ^ pretty_uop op ^
+                           " requires a bool but was provided a "
+                           ^ pretty_tp t Zero ^ "."))
   | UBitXor ->
-      if integer sts t then (t, b)
-      else raise (TypeError ("Unary operator " ^ pretty_uop op ^
-                             " requires an integer expression but was provided one of type "
-                             ^ pretty_tp t Zero ^ "."))
+    if integer sts t then (t, b)
+    else raise (TypeError ("Unary operator " ^ pretty_uop op ^
+                           " requires an integer expression but was provided one of type "
+                           ^ pretty_tp t Zero ^ "."))
 
 and check_binop sts (op : binop) ((t1, b1) : tp * bool) ((t2, b2) : tp * bool) : tp * bool = match op with  (* TODO: Reverify validity *)
   | LOr | LAnd ->
-      if compare_tps sts t1 Bool && compare_tps2 sts (t1, b1) (t2, b2) then let t = Bool in (t, false)
-      else raise (TypeError ("Binary operator " ^ pretty_binop op ^
-                             " requires bool expressions but was provided ones of type "
-                             ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
+    if compare_tps sts t1 Bool && compare_tps2 sts (t1, b1) (t2, b2) then let t = Bool in (t, false)
+    else raise (TypeError ("Binary operator " ^ pretty_binop op ^
+                           " requires bool expressions but was provided ones of type "
+                           ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
   | CmpEq | NotEq ->
-      if comparable sts t1 && compare_tps2 sts (t1, b1) (t2, b2) then let t = Bool in (t, false)
-      else raise (TypeError ("Binary operator " ^ pretty_binop op ^
-                             " requires comparable expressions but was provided ones of type "
-                             ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
+    if comparable sts t1 && compare_tps2 sts (t1, b1) (t2, b2) then let t = Bool in (t, false)
+    else raise (TypeError ("Binary operator " ^ pretty_binop op ^
+                           " requires comparable expressions but was provided ones of type "
+                           ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
   | LT | GT | LTE | GTE ->
-      if ordered sts t1 && compare_tps2 sts (t1, b1) (t2, b2) then let t = Bool in (t, false)
-      else raise (TypeError ("Binary operator " ^ pretty_binop op ^
-                             " requires ordered expressions but was provided ones of type "
-                             ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
+    if ordered sts t1 && compare_tps2 sts (t1, b1) (t2, b2) then let t = Bool in (t, false)
+    else raise (TypeError ("Binary operator " ^ pretty_binop op ^
+                           " requires ordered expressions but was provided ones of type "
+                           ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
   | Plus ->
-      if (numeric sts t1 || compare_tps sts t1 String) && compare_tps2 sts (t1, b1) (t2, b2) then let t = if b1 then t1 else t2 in (t, b1 || b2)
-      else raise (TypeError ("Binary operator " ^ pretty_binop op ^
-                             " requires numeric or string expressions but was provided ones of type "
-                             ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
+    if (numeric sts t1 || compare_tps sts t1 String) && compare_tps2 sts (t1, b1) (t2, b2) then let t = if b1 then t1 else t2 in (t, b1 || b2)
+    else raise (TypeError ("Binary operator " ^ pretty_binop op ^
+                           " requires numeric or string expressions but was provided ones of type "
+                           ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
   | Minus | Times | Div | Mod ->
-      if numeric sts t1 && compare_tps2 sts (t1, b1) (t2, b2) then let t = if b1 then t1 else t2 in (t, b1 || b2)
-      else raise (TypeError ("Binary operator " ^ pretty_binop op ^
-                             " requires numeric expressions but was provided ones of type "
-                             ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
+    if numeric sts t1 && compare_tps2 sts (t1, b1) (t2, b2) then let t = if b1 then t1 else t2 in (t, b1 || b2)
+    else raise (TypeError ("Binary operator " ^ pretty_binop op ^
+                           " requires numeric expressions but was provided ones of type "
+                           ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
   | BitOr | BitAnd | BitXOr | BitClr | LShift | RShift ->
-      if integer sts t1 && compare_tps2 sts (t1, b1) (t2, b2) then let t = if b1 then t1 else t2 in (t, b1 || b2)
-      else raise (TypeError ("Binary operator " ^ pretty_binop op ^
-                             " requires integer expressions but was provided ones of type "
-                             ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
+    if integer sts t1 && compare_tps2 sts (t1, b1) (t2, b2) then let t = if b1 then t1 else t2 in (t, b1 || b2)
+    else raise (TypeError ("Binary operator " ^ pretty_binop op ^
+                           " requires integer expressions but was provided ones of type "
+                           ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))
 
 and check_assignop sts (aop : assignop) (t1 : tp * bool)  (t2 : tp * bool) : unit =  (* TODO: Verify if what is commented out is needed *)
   let bop = match aop with
-  | PlusEq -> Plus | MinusEq -> Minus | TimesEq -> Times | DivEq -> Div
-  | ModEq -> Mod | AndEq -> BitAnd | OrEq -> BitOr | XOrEq -> BitXOr
-  | LShiftEq -> LShift | RShiftEq -> RShift | ClrEq -> BitClr in
+    | PlusEq -> Plus | MinusEq -> Minus | TimesEq -> Times | DivEq -> Div
+    | ModEq -> Mod | AndEq -> BitAnd | OrEq -> BitOr | XOrEq -> BitXOr
+    | LShiftEq -> LShift | RShiftEq -> RShift | ClrEq -> BitClr in
   (*let t =*) ignore (check_binop sts bop t1 t2) (*in
-  if compare_tps t t1 then ()
-  else raise (TypeError ("Assign operation " ^ pretty_assop aop ^ " has expressions of type " ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))*)
+                                                   if compare_tps t t1 then ()
+                                                   else raise (TypeError ("Assign operation " ^ pretty_assop aop ^ " has expressions of type " ^ pretty_tp t1 Zero ^ " and " ^ pretty_tp t2 Zero ^ "."))*)
 
 and check_id sts : id -> tp = fun name ->
   match STS.lookup sts name with
-    | None -> raise (TypeError ("Identifier " ^ name ^ " undeclared."))
-    | Some ti -> match ti with 
- | Id t -> t
- | Fn t -> t
- | _ -> raise (TypeError ("1.A Var or Fn was expected, but " ^ name ^ " was received, which is a type."))
+  | None -> raise (TypeError ("Identifier " ^ name ^ " undeclared."))
+  | Some ti -> match ti with
+    | Id t -> t
+    | Fn t -> t
+    | _ -> raise (TypeError ("1.A Var or Fn was expected, but " ^ name ^ " was received, which is a type."))
 
-and check_id' sts : id -> tp_or_id = fun name -> 
+and check_id' sts : id -> tp_or_id = fun name ->
   match STS.lookup sts name with
-    | None -> raise (TypeError ("Identifier " ^ name ^ " undeclared."))
-    | Some ti -> ti
+  | None -> raise (TypeError ("Identifier " ^ name ^ " undeclared."))
+  | Some ti -> ti
