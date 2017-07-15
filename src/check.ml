@@ -19,12 +19,6 @@ exception TypeError of string
 exception DeclError of string
 exception InternalError of string
 
-(* Type of data stored in symbol table *)
-type tp_or_id = Tp of tp | Id of tp | Fn of tp
-
-let string_of_tp_or_id : tp_or_id -> string = function
-  | Tp t | Id t | Fn t -> pretty_tp t Zero
-
 type 'a dump_info = { filename : string; string_of_data : 'a -> string }
 
 module type Symtbl = sig
@@ -95,7 +89,14 @@ module Make_symtbl_stack(ST : Symtbl) = struct
 end
 
 module STS = Make_symtbl_stack(Hash_symtbl)
-(*type symtbl_stack = tp_or_id STS.t*)
+
+(* Type of data stored in our symbol table *)
+type tp_or_id = Tp of tp | Id of tp | Fn of tp
+
+let string_of_tp_or_id : tp_or_id -> string = function
+  | Tp t | Id t | Fn t -> pretty_tp t Zero
+
+(* Helper functions for typechecking *)
 
 let rec inner_tp sts : tp -> tp option = function
   | TypeVar (name, _) -> begin match STS.lookup sts name with
@@ -200,7 +201,6 @@ let rec check_prog (dump_filename : string option) : prog -> unit = function
     let dumpinfo = Option.map dump_filename (fun filename -> {filename; string_of_data = string_of_tp_or_id}) in
     let sts = STS.create dumpinfo in
     STS.open_scope sts; (* global scope *)
-    (* Add predeclared identifiers *)
     List.iter primitives ~f:(fun (name, ti) -> STS.add_binding sts name ti);
     List.iter dl (check_topleveldecl sts);
     STS.close_scope sts pos

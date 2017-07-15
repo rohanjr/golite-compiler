@@ -307,7 +307,7 @@ primaryexpr: (* TODO add error cases for append/casting for invalid args *)
   | p = primaryexpr; LBRCKT; e = expr; RBRCKT { ArrAccess ($startpos(p), p, e, ref None) } (* array access *)
   | p = primaryexpr; LBRCKT; e1 = expr?; COLON; e2 = expr?; RBRCKT { Slice($startpos(p), p, e1, e2, ref None) } (* slice *)
   | p = primaryexpr; LBRCKT; e1 = expr?; COLON; e2 = expr; COLON; e3 = expr; RBRCKT { SliceCap($startpos(p), p, e1, e2, e3, ref None) } (* slice *)
-  | p = primaryexpr; LPAREN; el = exprlist?; RPAREN { FunApp($startpos(p), p, Util.oget [] el, ref None) } (* Functions *) 
+  | p = primaryexpr; LPAREN; el = exprlist?; RPAREN { FunApp($startpos(p), p, Core.Std.Option.value el ~default:[], ref None) } (* Functions *) 
   | a = APPEND; LPAREN; i = ID; COMMA; e = expr; RPAREN { Append($startpos(a), i, e, ref None) } (* Append *)
   | t = basetp; LPAREN; e = expr; RPAREN { Cast($startpos(t), t, e, ref None) } (* Type casting *)
   | p = primaryexpr; d = DOT; error { raise (E.ParsingError("expected identifier", $endpos(d))) }

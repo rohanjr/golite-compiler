@@ -35,14 +35,14 @@ and gen_topleveldecl : topleveldecl -> string = function
       in let param_list = begin match vsslo with
         | None -> "void"
         | Some vssl -> String.concat ", " (List.map gen_varspecsimp vssl)
-      end in let ret_tp_str = Util.omap gen_tp "void" tpo in
+      end in let ret_tp_str = Core.Std.Option.value_map tpo ~default:"void" ~f:gen_tp in
       ret_tp_str ^ " " ^ func_name ^ "(" ^ param_list ^ ") " ^ gen_block sl ^ "\n"
   | Stmt (_, s) -> gen_stmt s
 
 and gen_stmt : stmt -> string = function
   | Decl (_, ds) -> gen_declstmt ds ^ "\n"
   | Simple (_, ss) -> gen_simplestmt ss ^ ";\n"
-  | Return (_, eo) -> "return" ^ Util.omap (fun e -> " " ^ gen_expr e) "" eo ^ ";\n"
+  | Return (_, eo) -> "return" ^ Core.Std.Option.value_map eo ~default:"" ~f:(fun e -> " " ^ gen_expr e) ^ ";\n"
   | Break _ -> "break;\n"
   | Continue _ -> "continue;\n"
   | Block (_, sl) -> gen_block sl ^ "\n"
@@ -59,8 +59,8 @@ and gen_varspec : varspec -> string list = function
   | VarSpecTp (_, vss, elo) -> 
     let varspecs = gen_varspecsimp vss in
     List.map2 (fun x y -> x ^ y)
-      (varspecs)
-      (Util.omap (List.map (fun x -> " = " ^ gen_expr x ^ ";")) (List.map (fun x -> ";") varspecs) elo)
+      varspecs
+      (Core.Std.Option.value_map elo ~default:(List.map (fun x -> ";") varspecs) ~f:(List.map (fun x -> " = " ^ gen_expr x ^ ";")))
   | VarSpecNoTp (_, il, el) -> 
     List.map2 (fun x (y,z) -> gen_tp z ^ " " ^ x ^ " = " ^ y ^ ";") 
       il 
@@ -123,12 +123,12 @@ and gen_simplestmt : simplestmt -> string = function
 
 and gen_assign (assopo : assignop option) (lv : string) (e : expr) : string =
   (* TODO what if assigning slices? C struct assignment should be sufficient? *)
-  let op = Util.omap gen_assignop "=" assopo in
+  let op = Core.Std.Option.value_map assopo ~default:"=" ~f:gen_assignop in
   lv ^ " " ^ op ^ " " ^ gen_expr e
 
 and gen_ifstmt : ifstmt -> string =
   let gen_ifcond = function
-    IfCond (_, sso, e) -> Util.omap (fun ss -> gen_simplestmt ss ^ ", ") "" sso ^ gen_expr e in
+    IfCond (_, sso, e) -> Core.Std.Option.value_map sso ~default:"" ~f:(fun ss -> gen_simplestmt ss ^ ", ") ^ gen_expr e in
   let gen_if ic sl = "if (" ^ gen_ifcond ic ^ ") " ^ gen_block sl in
   function
   | IfOnly (_, ic, sl) -> gen_if ic sl ^ "\n"
@@ -136,13 +136,13 @@ and gen_ifstmt : ifstmt -> string =
   | IfElseIf (_, ic, sl, is) -> gen_if ic sl ^ " else " ^ gen_ifstmt is
   
 and gen_switchstmt : switchstmt -> string = function
-  SwitchStmt (_, sco, eccl) -> "switch (" ^ Util.omap gen_switchcond "true" sco ^ ") {\n" ^
+  SwitchStmt (_, sco, eccl) -> "switch (" ^ Core.Std.Option.value_map sco ~default:"true" ~f:gen_switchcond ^ ") {\n" ^
                                Util.concatmap gen_exprcaseclause eccl ^ "}\n"
 
 and gen_switchcond : switchcond -> string = function
   SwitchCond (_, sso, eo) ->
-    Util.omap (fun ss -> gen_simplestmt ss ^ "; ") "" sso ^
-    Util.omap gen_expr "true" eo
+    Core.Std.Option.value_map sso ~default:"" ~f:(fun ss -> gen_simplestmt ss ^ "; ") ^
+    Core.Std.Option.value_map eo ~default:"true" ~f:gen_expr
 
 and gen_exprcaseclause : exprcaseclause -> string = function
   ExprCaseClause (_, esc, sl) -> gen_exprswitchcase esc ^ Util.concatmap gen_stmt sl ^ "break;\n"
@@ -155,8 +155,8 @@ and gen_forstmt : forstmt -> string = function
   | InfLoop (_, sl) -> "while (1) " ^ gen_block sl ^ "\n"
   | WhileLoop (_, e, sl) -> "while (" ^ gen_expr e ^ ") " ^ gen_block sl ^ "\n"
   | ForLoop (_, sso1, eo, sso2, sl) ->
-      "for (" ^ Util.omap gen_simplestmt "" sso1 ^ "; " ^ Util.omap gen_expr "" eo ^ "; " ^
-                Util.omap gen_simplestmt "" sso2 ^ ") " ^ gen_block sl ^ "\n"
+      "for (" ^ Core.Std.Option.value_map sso1 ~default:"" ~f:gen_simplestmt ^ "; " ^ Core.Std.Option.value_map eo ~default:"" ~f:gen_expr ^ "; " ^
+                Core.Std.Option.value_map sso2 ~default:"" ~f:gen_simplestmt ^ ") " ^ gen_block sl ^ "\n"
 
 and gen_printstmt : printstmt -> string =
   (* TODO convert bool expr to string before printing *)
@@ -312,9 +312,9 @@ and gen_slice (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (eo3 : 
   match tp_of_primaryexpr pe with
   | TArray (n, t) ->      
     let initial_cap = string_of_int n in
-        let low =  Util.omap gen_expr "0" eo1 in        
-        let high = Util.omap gen_expr initial_cap eo2 in
-        let max = Util.omap gen_expr initial_cap eo3 in      
+        let low = Core.Std.Option.value_map eo1 ~default:"0" ~f:gen_expr in        
+        let high = Core.Std.Option.value_map eo2 ~default:initial_cap ~f:gen_expr in
+        let max = Core.Std.Option.value_map eo3 ~default:initial_cap ~f:gen_expr in      
       "__new_slice(&" ^ gen_primaryexpr pe ^ "[" ^ low ^ "], " 
         ^ string_of_int ((int_of_string high) - (int_of_string low)) ^ ", "
        ^ string_of_int ((int_of_string max) - (int_of_string low)) ^  ")"

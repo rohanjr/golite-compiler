@@ -306,16 +306,16 @@ end
 module ReturnWeeding = struct
 
   let tp_of_expr e = match e with
-    | Unary (_, _, tor) -> Util.omap (fun x -> x) Void !tor
-    | Binary (_, _, _, _, tor) -> Util.omap (fun x -> x) Void !tor
+    | Unary (_, _, tor) -> Core.Std.Option.value_map !tor ~default:Void ~f:Core.Std.Fn.id
+    | Binary (_, _, _, _, tor) -> Core.Std.Option.value_map !tor ~default:Void ~f:Core.Std.Fn.id
 
   let rec weed (t : prog) : unit =
     let Prog (pos, pkg, tlist) = t in
     List.iter weed_topleveldecl tlist
 
   and weed_topleveldecl (t : topleveldecl) : unit = match t with
-    | FuncDecl (pos, id, vspec, typ, ss) ->
-      let rtype = Util.omap (fun x -> x) Void typ in
+    | FuncDecl (pos, id, vspec, tpo, ss) ->
+      let rtype = Core.Std.Option.value_map tpo ~default:Void ~f:Core.Std.Fn.id in
       (* Check if this is valid, void function must not have a return statement *)
       let ret_list = List.map (fun s -> weed_stmt rtype s) ss in
       if List.mem true ret_list then ()
