@@ -26,8 +26,8 @@ let headers = ["<stdlib.h>"; "<stdio.h>"; "<stdbool.h>"]
 let slice = "typedef struct __slice {\n void *start;\n  int length;\n int cap;\n} __slice;\n\n__slice __new_slice(void *arr, int length, int cap)\n{\n  __slice s = {\n   arr,\n    length,\n   cap\n };\n\n  return s;\n}\n"
 
 let rec gen_prog : prog -> string = function
-  Prog (_, _, dl) -> Util.concatmap (fun h -> "#include " ^ h ^ "\n") headers ^ slice ^
-                     Util.concatmap gen_topleveldecl dl
+  Prog (_, _, dl) -> String.concat (List.map ~f:(fun h -> "#include " ^ h ^ "\n") headers) ^ slice ^
+                     String.concat (List.map ~f:gen_topleveldecl dl)
 
 and gen_topleveldecl : topleveldecl -> string = function
   | FuncDecl (_, func_name, vsslo, tpo, sl) ->
@@ -139,7 +139,7 @@ and gen_ifstmt : ifstmt -> string =
   
 and gen_switchstmt : switchstmt -> string = function
   SwitchStmt (_, sco, eccl) -> "switch (" ^ Option.value_map sco ~default:"true" ~f:gen_switchcond ^ ") {\n" ^
-                               Util.concatmap gen_exprcaseclause eccl ^ "}\n"
+                               String.concat (List.map ~f:gen_exprcaseclause eccl) ^ "}\n"
 
 and gen_switchcond : switchcond -> string = function
   SwitchCond (_, sso, eo) ->
@@ -147,10 +147,10 @@ and gen_switchcond : switchcond -> string = function
     Option.value_map eo ~default:"true" ~f:gen_expr
 
 and gen_exprcaseclause : exprcaseclause -> string = function
-  ExprCaseClause (_, esc, sl) -> gen_exprswitchcase esc ^ Util.concatmap gen_stmt sl ^ "break;\n"
+  ExprCaseClause (_, esc, sl) -> gen_exprswitchcase esc ^ String.concat (List.map ~f:gen_stmt sl) ^ "break;\n"
 
 and gen_exprswitchcase : exprswitchcase -> string = function
-  | Case (_, el) -> Util.concatmap (fun e -> "case " ^ gen_expr e ^ ":\n") el
+  | Case (_, el) -> String.concat (List.map ~f:(fun e -> "case " ^ gen_expr e ^ ":\n") el)
   | Default _ -> "default:\n"
 
 and gen_forstmt : forstmt -> string = function
@@ -323,7 +323,7 @@ and gen_slice (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (eo3 : 
   | t -> raise (InternalError ("Primary expression " ^ pretty_primary pe Zero ^ " has type " ^ pretty_tp t Zero ^
                                ", but should have array type for use in a slice expression."))
 
-and gen_block (sl : stmt list) : string = "{\n" ^ Util.concatmap gen_stmt sl ^ "}"
+and gen_block (sl : stmt list) : string = "{\n" ^ String.concat (List.map ~f:gen_stmt sl) ^ "}"
 
 and gen_tp : tp -> string = function
   | Int -> "int"
