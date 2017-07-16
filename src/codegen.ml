@@ -9,6 +9,8 @@
  * Shawn Otis 
  *)
 
+open Core.Std
+
 open Ast
 open Pretty
 open Printf
@@ -31,18 +33,18 @@ and gen_topleveldecl : topleveldecl -> string = function
   | FuncDecl (_, func_name, vsslo, tpo, sl) ->
       let gen_varspecsimp (il, t) =
         let tp_str = gen_tp t in
-        String.concat ", " (List.map (fun i -> tp_str ^ " " ^ i) il)
+        String.concat ~sep:", " (List.map il ~f:(fun i -> tp_str ^ " " ^ i))
       in let param_list = begin match vsslo with
         | None -> "void"
-        | Some vssl -> String.concat ", " (List.map gen_varspecsimp vssl)
-      end in let ret_tp_str = Core.Std.Option.value_map tpo ~default:"void" ~f:gen_tp in
+        | Some vssl -> String.concat ~sep:", " (List.map ~f:gen_varspecsimp vssl)
+      end in let ret_tp_str = Option.value_map tpo ~default:"void" ~f:gen_tp in
       ret_tp_str ^ " " ^ func_name ^ "(" ^ param_list ^ ") " ^ gen_block sl ^ "\n"
   | Stmt (_, s) -> gen_stmt s
 
 and gen_stmt : stmt -> string = function
   | Decl (_, ds) -> gen_declstmt ds ^ "\n"
   | Simple (_, ss) -> gen_simplestmt ss ^ ";\n"
-  | Return (_, eo) -> "return" ^ Core.Std.Option.value_map eo ~default:"" ~f:(fun e -> " " ^ gen_expr e) ^ ";\n"
+  | Return (_, eo) -> "return" ^ Option.value_map eo ~default:"" ~f:(fun e -> " " ^ gen_expr e) ^ ";\n"
   | Break _ -> "break;\n"
   | Continue _ -> "continue;\n"
   | Block (_, sl) -> gen_block sl ^ "\n"
@@ -52,19 +54,19 @@ and gen_stmt : stmt -> string = function
   | Print (_, ps) -> gen_printstmt ps
 
 and gen_declstmt : declstmt -> string = function
-  | VarDecls (_, vsl) -> String.concat "\n" (List.flatten (List.map gen_varspec vsl))
-  | TypeDecls (_, tsl) -> String.concat "\n" (List.map gen_typespec tsl)
+  | VarDecls (_, vsl) -> String.concat ~sep:"\n" (List.concat (List.map ~f:gen_varspec vsl))
+  | TypeDecls (_, tsl) -> String.concat ~sep:"\n" (List.map ~f:gen_typespec tsl)
 
 and gen_varspec : varspec -> string list = function
   | VarSpecTp (_, vss, elo) -> 
     let varspecs = gen_varspecsimp vss in
-    List.map2 (fun x y -> x ^ y)
+    List.map2_exn ~f:(^)
       varspecs
-      (Core.Std.Option.value_map elo ~default:(List.map (fun x -> ";") varspecs) ~f:(List.map (fun x -> " = " ^ gen_expr x ^ ";")))
+      (Option.value_map elo ~default:(List.map ~f:(fun x -> ";") varspecs) ~f:(List.map ~f:(fun x -> " = " ^ gen_expr x ^ ";")))
   | VarSpecNoTp (_, il, el) -> 
-    List.map2 (fun x (y,z) -> gen_tp z ^ " " ^ x ^ " = " ^ y ^ ";") 
+    List.map2_exn ~f:(fun x (y, z) -> gen_tp z ^ " " ^ x ^ " = " ^ y ^ ";") 
       il 
-      (List.combine (List.map gen_expr el) (List.map get_expr_type el))
+      (List.zip_exn (List.map ~f:gen_expr el) (List.map ~f:get_expr_type el))
 
 and get_expr_type : expr -> tp = function
   | Unary (pos, _, tpo) -> 
@@ -88,47 +90,47 @@ and gen_varspecsimp (ids, t) : string list =
     | TArray (n, tt) ->
         gen_tp tt ^ " " ^ i ^ "[" ^ string_of_int n ^ "]"
     | _ -> gen_tp t ^ " " ^ i in
-  List.map gen_decl ids
+  List.map ~f:gen_decl ids
 
 and gen_simplestmt : simplestmt -> string = function
   | Expr (_, e) -> gen_expr e
   | Inc (_, e) -> gen_expr e ^ "++"
   | Dec (_, e) -> gen_expr e ^ "--"
   | Assign (_, assop, lval, e) -> gen_assign (Some assop) (gen_lvalue lval) e
-  | AssignEquals (_, lvall, el) -> String.concat ", " (List.map2 (fun lval e -> gen_assign None (gen_lvalue lval) e) lvall el)
+  | AssignEquals (_, lvall, el) -> String.concat ~sep:", " (List.map2_exn ~f:(fun lval e -> gen_assign None (gen_lvalue lval) e) lvall el)
   | AssignVar (_, assop, i, e) -> gen_assign (Some assop) i e
   | AssignVarEquals (_, idl, el) -> 
-    String.concat ", " 
-    (List.filter (fun x -> x <> "") (List.map2 (fun id e -> if id = "_" then "" else gen_assign None id e) idl el))
+    String.concat ~sep:", " 
+      (List.filter ~f:((<>) "") (List.map2_exn ~f:(fun id e -> if id = "_" then "" else gen_assign None id e) idl el))
   | ShortVarDecl (_, idl, el, dlor) ->
-      let dl = 
-        begin
-          match !dlor with
-          | None -> raise (InternalError "ShortVarDecl lacks a declaration list")
-          | Some dl' -> dl'
-        end
-      in
-    String.concat "; "
-    (List.filter (fun x -> x <> "") (* Remove empty string *)
-    (List.map2 
-      (fun (id, d) e -> 
-        if id = "_" then "" else (* If underscore, then empty string *)
-        if d 
-        then gen_assign None id e 
-        else 
-          let t = get_expr_type e in
-          gen_tp t ^ " " ^ gen_assign None id e
-      ) 
-    (List.combine idl dl) el))
+    let dl = 
+      begin
+        match !dlor with
+        | None -> raise (InternalError "ShortVarDecl lacks a declaration list")
+        | Some dl' -> dl'
+      end
+    in
+      String.concat ~sep:"; "
+        (List.filter ~f:((<>) "") (* Remove empty string *)
+           (List.map2_exn 
+              ~f:(fun (id, d) e -> 
+                 if id = "_" then "" else (* If underscore, then empty string *)
+                 if d 
+                 then gen_assign None id e 
+                 else 
+                   let t = get_expr_type e in
+                   gen_tp t ^ " " ^ gen_assign None id e
+              ) 
+              (List.zip_exn idl dl) el))
 
 and gen_assign (assopo : assignop option) (lv : string) (e : expr) : string =
   (* TODO what if assigning slices? C struct assignment should be sufficient? *)
-  let op = Core.Std.Option.value_map assopo ~default:"=" ~f:gen_assignop in
+  let op = Option.value_map assopo ~default:"=" ~f:gen_assignop in
   lv ^ " " ^ op ^ " " ^ gen_expr e
 
 and gen_ifstmt : ifstmt -> string =
   let gen_ifcond = function
-    IfCond (_, sso, e) -> Core.Std.Option.value_map sso ~default:"" ~f:(fun ss -> gen_simplestmt ss ^ ", ") ^ gen_expr e in
+    IfCond (_, sso, e) -> Option.value_map sso ~default:"" ~f:(fun ss -> gen_simplestmt ss ^ ", ") ^ gen_expr e in
   let gen_if ic sl = "if (" ^ gen_ifcond ic ^ ") " ^ gen_block sl in
   function
   | IfOnly (_, ic, sl) -> gen_if ic sl ^ "\n"
@@ -136,13 +138,13 @@ and gen_ifstmt : ifstmt -> string =
   | IfElseIf (_, ic, sl, is) -> gen_if ic sl ^ " else " ^ gen_ifstmt is
   
 and gen_switchstmt : switchstmt -> string = function
-  SwitchStmt (_, sco, eccl) -> "switch (" ^ Core.Std.Option.value_map sco ~default:"true" ~f:gen_switchcond ^ ") {\n" ^
+  SwitchStmt (_, sco, eccl) -> "switch (" ^ Option.value_map sco ~default:"true" ~f:gen_switchcond ^ ") {\n" ^
                                Util.concatmap gen_exprcaseclause eccl ^ "}\n"
 
 and gen_switchcond : switchcond -> string = function
   SwitchCond (_, sso, eo) ->
-    Core.Std.Option.value_map sso ~default:"" ~f:(fun ss -> gen_simplestmt ss ^ "; ") ^
-    Core.Std.Option.value_map eo ~default:"true" ~f:gen_expr
+    Option.value_map sso ~default:"" ~f:(fun ss -> gen_simplestmt ss ^ "; ") ^
+    Option.value_map eo ~default:"true" ~f:gen_expr
 
 and gen_exprcaseclause : exprcaseclause -> string = function
   ExprCaseClause (_, esc, sl) -> gen_exprswitchcase esc ^ Util.concatmap gen_stmt sl ^ "break;\n"
@@ -155,8 +157,8 @@ and gen_forstmt : forstmt -> string = function
   | InfLoop (_, sl) -> "while (1) " ^ gen_block sl ^ "\n"
   | WhileLoop (_, e, sl) -> "while (" ^ gen_expr e ^ ") " ^ gen_block sl ^ "\n"
   | ForLoop (_, sso1, eo, sso2, sl) ->
-      "for (" ^ Core.Std.Option.value_map sso1 ~default:"" ~f:gen_simplestmt ^ "; " ^ Core.Std.Option.value_map eo ~default:"" ~f:gen_expr ^ "; " ^
-                Core.Std.Option.value_map sso2 ~default:"" ~f:gen_simplestmt ^ ") " ^ gen_block sl ^ "\n"
+      "for (" ^ Option.value_map sso1 ~default:"" ~f:gen_simplestmt ^ "; " ^ Option.value_map eo ~default:"" ~f:gen_expr ^ "; " ^
+                Option.value_map sso2 ~default:"" ~f:gen_simplestmt ^ ") " ^ gen_block sl ^ "\n"
 
 and gen_printstmt : printstmt -> string =
   (* TODO convert bool expr to string before printing *)
@@ -165,15 +167,15 @@ and gen_printstmt : printstmt -> string =
       begin match elo with
       | None -> ""
       | Some el ->
-          let format_str = String.concat "" (List.map gen_fmt el) in
-          "printf(\"" ^ format_str ^ "\", " ^ String.concat ", " (List.map gen_expr el) ^ ");\n"
+          let format_str = String.concat (List.map ~f:gen_fmt el) in
+          "printf(\"" ^ format_str ^ "\", " ^ String.concat ~sep:", " (List.map ~f:gen_expr el) ^ ");\n"
       end
   | PrintlnStmt (_, elo) -> 
       begin match elo with
       | None -> "puts(\"\");\n"
       | Some el ->
-          let format_str = String.concat " " (List.map gen_fmt el) in
-          "printf(\"" ^ format_str ^ "\\n\", " ^ String.concat ", " (List.map gen_expr el) ^ ");\n"
+          let format_str = String.concat ~sep:" " (List.map ~f:gen_fmt el) in
+          "printf(\"" ^ format_str ^ "\\n\", " ^ String.concat ~sep:", " (List.map ~f:gen_expr el) ^ ");\n"
       end
 
 and gen_fmt (e : expr) : string = match e with
@@ -218,7 +220,7 @@ and gen_primaryexpr : primaryexpr -> string = function
   | ArrAccess (_, pe, e, _) -> gen_arrayaccess pe e
   | Slice (_, pe, eo1, eo2, _) -> gen_slice pe eo1 eo2 None
   | SliceCap (_, pe, eo, e1, e2, _) -> gen_slice pe eo (Some e1) (Some e2)
-  | FunApp (_, pe, el, _) -> gen_primaryexpr pe ^ "(" ^ String.concat ", " (List.map gen_expr el) ^ ")"
+  | FunApp (_, pe, el, _) -> gen_primaryexpr pe ^ "(" ^ String.concat ~sep:", " (List.map ~f:gen_expr el) ^ ")"
   | Append (_, i, e, _) -> ""
     (* "{\n" ^
     "malloc (sizeof(" ^ (* type *) ") * (" ^ (* name *) ^ ".length + 1)),\n" ^
@@ -312,9 +314,9 @@ and gen_slice (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (eo3 : 
   match tp_of_primaryexpr pe with
   | TArray (n, t) ->      
     let initial_cap = string_of_int n in
-        let low = Core.Std.Option.value_map eo1 ~default:"0" ~f:gen_expr in        
-        let high = Core.Std.Option.value_map eo2 ~default:initial_cap ~f:gen_expr in
-        let max = Core.Std.Option.value_map eo3 ~default:initial_cap ~f:gen_expr in      
+        let low = Option.value_map eo1 ~default:"0" ~f:gen_expr in        
+        let high = Option.value_map eo2 ~default:initial_cap ~f:gen_expr in
+        let max = Option.value_map eo3 ~default:initial_cap ~f:gen_expr in      
       "__new_slice(&" ^ gen_primaryexpr pe ^ "[" ^ low ^ "], " 
         ^ string_of_int ((int_of_string high) - (int_of_string low)) ^ ", "
        ^ string_of_int ((int_of_string max) - (int_of_string low)) ^  ")"
@@ -337,6 +339,6 @@ and gen_tp : tp -> string = function
   | TStruct vssl -> 
     let gen_varspecsimp (il, t) =
         let tp_str = gen_tp t in
-        String.concat "; " (List.map (fun i -> tp_str ^ " " ^ i) il)
+        String.concat ~sep:"; " (List.map ~f:(fun i -> tp_str ^ " " ^ i) il)
     in
-    "struct {" ^ String.concat "; " (List.map gen_varspecsimp vssl) ^ "}"
+    "struct {" ^ String.concat ~sep:"; " (List.map ~f:gen_varspecsimp vssl) ^ "}"
