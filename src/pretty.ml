@@ -27,127 +27,46 @@ let rec indent : nat -> string = function
   | Zero -> ""
   | Succ level -> "   " ^ indent level
 
-let rec pretty : prog -> string = function
-    Prog (_, package, tld) -> pretty_package package ^ pretty_topleveldecl_list tld ~level:Zero
+let pretty_option (f : 'a -> string) : 'a option -> string =
+  Option.value_map ~default:"" ~f
 
-and pretty_package : package -> string = function
-    Package (_, name) -> "package " ^ name ^ "\n\n"
+let pretty_varlist (varlist : id list) =
+  if varlist = [] then
+    raise (Problem "Varlists should be non-empty.")
+  else
+    String.concat ~sep:", " varlist
 
-and pretty_topleveldecl_list (tldl : topleveldecl list) ~level =
-  String.concat (List.map tldl ~f:(pretty_topleveldecl ~level))
-
-and pretty_topleveldecl (tld : topleveldecl) ~level : string = match tld with
-  | FuncDecl (p, i, vsslo, tpo, sl) -> "func " ^ i ^ "(" ^ pretty_varspecsimp_list_option vsslo level ^ ") " ^ pretty_tp_option tpo level ^ pretty_stmt (Block (p, sl)) level
-  | Stmt (_, stmt) -> pretty_stmt stmt level
-
-and pretty_stmtlist (stmtlist: stmt list) level =
-  match stmtlist with
-  | [] -> ""
-  | stmt :: t -> indent level ^ (pretty_stmt stmt level) ^ (pretty_stmtlist t level)
-
-(* Pretty printing statements *)
-and pretty_stmt (stmt : stmt) level = match stmt with
-  | Decl (_, declstmt) -> pretty_decl declstmt level
-  | Simple (_, simplestmt) -> pretty_simple simplestmt level ^ "\n"
-  | Return (_, eop) -> "return " ^ pretty_expr_option eop level ^ "\n"
-  | Break _ -> "break\n"
-  | Continue _ -> "continue\n"
-  | Block (_, stmtlist) -> "{\n" ^ pretty_stmtlist stmtlist (Succ level) ^ indent level ^ "}\n"
-  | If (_, ifstmt) -> "if " ^ pretty_if ifstmt level
-  | Switch (_, switchstmt) -> "switch " ^ pretty_switch switchstmt level
-  | For (_, forstmt) -> "for " ^ pretty_for forstmt level
-  | Print (_, printstmt) -> pretty_print printstmt level
-
-(* Pretty printing declarations  *)
-and pretty_decl (declstmt : declstmt ) level = match declstmt with
-  | VarDecls (_, [varspec]) -> "var " ^ pretty_var_decl varspec level
-  | TypeDecls (_, [typespec]) -> "type " ^ pretty_type_decl typespec level
-  | VarDecls (_, vslist) -> "var (\n"  ^ pretty_varspecsemi_list vslist (Succ level) ^ indent level ^ ")\n"
-  | TypeDecls (_, tsl) -> "type ( \n" ^ pretty_typespecsemi_list tsl (Succ level) ^ indent level ^ ")\n"
-
-and pretty_varspecsemi_list (vsl : varspec list) level = match vsl with
-  | [] -> ""
-  | h :: t -> indent level ^ pretty_var_decl h level ^ pretty_varspecsemi_list t level
-
-and pretty_typespecsemi_list (tsl : typespec list) level = match tsl with
-  | [] -> ""
-  | h :: t -> indent level ^ pretty_type_decl h level ^ pretty_typespecsemi_list t level
-
-(* Pretty printing variable declarations *)
-and pretty_var_decl (varspec : varspec) level = match varspec with
-  | VarSpecTp (_, varspecsimp, None) -> pretty_varspecsimp varspecsimp level ^ "\n"
-  | VarSpecTp (_, varspecsimp, Some exprlist) -> pretty_varspecsimp varspecsimp level ^ " = " ^ pretty_exprlist exprlist level ^ "\n"
-  | VarSpecNoTp (_, varlist, exprlist) -> pretty_varlist varlist ^ " = " ^ pretty_exprlist exprlist level ^ "\n"
-
-and pretty_varspecsimp (varspecsimp : varspecsimp) level = match varspecsimp with
-  | (varlist, tp) -> pretty_varlist varlist ^ " " ^ pretty_tp tp level
-
-and pretty_tp_option (tpo : tp option) level = match tpo with
-  | None -> ""
-  | Some t -> pretty_tp t level ^ " "
-
-and pretty_tp (tp : tp) level = match tp with
+let rec pretty_tp ?(level=Zero) : tp -> string = function
   | Void -> "void"
   | Int -> "int"
   | Float64 -> "float64"
   | Bool -> "bool"
   | Rune -> "rune"
   | String -> "string"
-  | FuncTp (tl, rt) -> "(" ^ begin match tl with 
-			      | [] -> "void"             
-			      | _ -> String.concat ~sep:" * " (List.map ~f:(fun t -> pretty_tp t level) tl) end
-                       ^ ") -> " ^ pretty_tp rt level
+  | FuncTp (tl, rt) ->
+    "(" ^ begin match tl with 
+    | [] -> "void"
+    | _ -> String.concat ~sep:" * " (List.map ~f:(pretty_tp ~level) tl) end
+    ^ ") -> " ^ pretty_tp rt ~level
   | TypeVar (id, _) -> id
-  | TSlice (t) -> "[]" ^ pretty_tp t level
-  | TArray (size, t) -> "[" ^ string_of_int size ^ "]" ^ pretty_tp t level
-  | TStruct (vsslist) -> "struct {\n" ^ pretty_struct vsslist (Succ level) ^ indent level ^ "}"
+  | TSlice t -> "[]" ^ pretty_tp t ~level
+  | TArray (size, t) -> "[" ^ string_of_int size ^ "]" ^ pretty_tp t ~level
+  | TStruct vssl -> "struct {\n" ^ pretty_struct vssl ~level:(Succ level) ^ indent level ^ "}"
 
-and pretty_varspecsimp_list_option (vsslo : varspecsimp list option) level = match vsslo with
-  | None -> ""
-  | Some vssl -> pretty_varspecsimp_list vssl level
+and pretty_struct ~level (vssl : varspecsimp list) =
+  String.concat (List.map vssl ~f:(fun vss -> indent level ^ pretty_varspecsimp vss ~level ^ "\n"))
 
-and pretty_varspecsimp_list (vssl : varspecsimp list) level =
-  String.concat ~sep:", " (List.map vssl ~f:(fun vss -> pretty_varspecsimp vss level))
+and pretty_varspecsimp ~level : varspecsimp -> string = function
+  | (varlist, tp) -> pretty_varlist varlist ^ " " ^ pretty_tp tp ~level
 
-and pretty_varlist (varlist : id list) =
-  if varlist = [] then
-    raise (Problem "Varlists should be non-empty.")
-  else
-    String.concat ~sep:", " varlist
+let pretty_tp_option ~level : tp option -> string = pretty_option (fun t -> pretty_tp t ~level ^ " ")
 
-(* Pretty printing expressions*)
-and pretty_exprlist (exprlist: expr list) level =
-  String.concat ~sep:", " (List.map exprlist ~f:(fun e -> pretty_expr e level))
+let pretty_comment_tp : tp option -> string = pretty_option (fun t -> " /* : " ^ pretty_tp t ^ "*/ ")
 
-and pretty_expr (expr: expr) level = (match expr with
-  | Unary (_, u, tpor) -> pretty_unary u level(* ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> "/* : " ^ pretty_tp t Zero ^ "*/"
-		    )*)
-  | Binary (_, op, e1, e2, tpor) -> pretty_expr e1 level ^ " " ^ pretty_binop op ^ " " ^ pretty_expr e2 level ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-			       )
+let pretty_varspecsimp_list (vssl : varspecsimp list) ~level =
+  String.concat ~sep:", " (List.map vssl ~f:(pretty_varspecsimp ~level))
 
-and pretty_unary (u: unaryexpr) level = (match u with
-  | Primary (_, prim, tpor) -> pretty_primary prim level (* ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> "/* : " ^ pretty_tp t Zero ^ "*/"
-		    )*)
-  | UnaryOp (_, op, u, tpor) -> pretty_uop op ^ pretty_unary u level ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-				  )
-
-and pretty_uop (op: uop) = match op with
-  | UPlus -> "+"
-  | UMinus -> "-"
-  | LNot -> "!"
-  | UBitXor -> "^"
-
-and pretty_binop (op: binop) = match op with
+let pretty_binop : binop -> string = function
   | LOr -> "||"
   | LAnd -> "&&"
   | CmpEq -> "=="
@@ -168,71 +87,95 @@ and pretty_binop (op: binop) = match op with
   | LShift -> "<<"
   | RShift -> ">>"
 
-and pretty_primary (prim : primaryexpr) level = (match prim with
-  | Operand (_, oper, tpor) -> pretty_operand oper level (* ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> "/* : " ^ pretty_tp t Zero ^ "*/"
-		    )*)
-  | Sel (_, prim, id, tpor) -> pretty_primary prim level ^ "." ^ id ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | ArrAccess (_, prim, expr, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr expr level ^ "]" ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | Slice (_, prim, e1op, e2op, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option e1op level ^ " : " ^ pretty_expr_option e2op level ^ "]" ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | SliceCap (_, prim, eop, e1, e2, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option eop level ^ " : " ^ pretty_expr e1 level ^ " : " ^ pretty_expr e2 level ^ "]" ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | FunApp (_, prim, el, tpor) -> pretty_primary prim level ^ "(" ^ pretty_exprlist el level ^ ")" ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | Append (_, x, expr, tpor) -> "append" ^ "(" ^ x ^ ", " ^ pretty_expr expr level ^ ")" ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | Cast (_, tp, expr, tpor) -> pretty_tp tp level ^ "(" ^ pretty_expr expr level ^ ")" ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-			       )
+let pretty_uop : uop -> string = function
+  | UPlus -> "+"
+  | UMinus -> "-"
+  | LNot -> "!"
+  | UBitXor -> "^"
 
-and pretty_operand (oper : operand) level = (match oper with
-  | Parens (_, expr, tpor) -> "(" ^ pretty_expr expr level ^ ")"  ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | Var (_, id, tpor) -> id ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | IntLit (_, i, tpor) -> string_of_int i ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | FloatLit (_, f, tpor) -> string_of_float f ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | RuneLit (_, r, tpor) -> r ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-  | StrLit (_, s, tpor) -> s ^ (match !tpor with
-		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
-		    )
-				      )
+let rec pretty_expr (e : expr) ~level = match e with
+  | Unary (_, u, tpor) -> pretty_unary u level
+  | Binary (_, op, e1, e2, tpor) ->
+    pretty_expr e1 ~level ^ " " ^ pretty_binop op ^ " " ^ pretty_expr e2 ~level ^ pretty_comment_tp !tpor
 
-and pretty_expr_option (e : expr option) level = match e with
-  | None -> ""
-  | Some expr -> pretty_expr expr level
+and pretty_expr_option (eo : expr option) level =
+  pretty_option (pretty_expr ~level) eo
+
+and pretty_exprlist (exprlist: expr list) level =
+  String.concat ~sep:", " (List.map exprlist ~f:(pretty_expr ~level))
+
+and pretty_unary (u : unaryexpr) level = match u with
+  | Primary (_, prim, tpor) -> pretty_primary prim level
+  | UnaryOp (_, op, u, tpor) ->
+    pretty_uop op ^ pretty_unary u level ^ pretty_comment_tp !tpor
+
+and pretty_primary (prim : primaryexpr) level = match prim with
+  | Operand (_, oper, tpor) -> pretty_operand oper level
+  | Sel (_, prim, id, tpor) -> pretty_primary prim level ^ "." ^ id ^ pretty_comment_tp !tpor
+  | ArrAccess (_, prim, expr, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr expr ~level ^ "]" ^ pretty_comment_tp !tpor
+  | Slice (_, prim, e1op, e2op, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option e1op level ^ " : " ^ pretty_expr_option e2op level ^ "]" ^ pretty_comment_tp !tpor
+  | SliceCap (_, prim, eop, e1, e2, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option eop level ^ " : " ^ pretty_expr e1 ~level ^ " : " ^ pretty_expr e2 ~level ^ "]" ^ pretty_comment_tp !tpor
+  | FunApp (_, prim, el, tpor) -> pretty_primary prim level ^ "(" ^ pretty_exprlist el level ^ ")" ^ pretty_comment_tp !tpor
+  | Append (_, x, expr, tpor) -> "append" ^ "(" ^ x ^ ", " ^ pretty_expr expr ~level ^ ")" ^ pretty_comment_tp !tpor
+  | Cast (_, tp, expr, tpor) -> pretty_tp tp ~level ^ "(" ^ pretty_expr expr ~level ^ ")" ^ pretty_comment_tp !tpor
+
+and pretty_operand (oper : operand) level = match oper with
+  | Parens (_, expr, tpor) -> "(" ^ pretty_expr expr ~level ^ ")"  ^ pretty_comment_tp !tpor
+  | Var (_, id, tpor) -> id ^ pretty_comment_tp !tpor
+  | IntLit (_, i, tpor) -> string_of_int i ^ pretty_comment_tp !tpor
+  | FloatLit (_, f, tpor) -> string_of_float f ^ pretty_comment_tp !tpor
+  | RuneLit (_, r, tpor) -> r ^ pretty_comment_tp !tpor
+  | StrLit (_, s, tpor) -> s ^ pretty_comment_tp !tpor
+
+let rec pretty : prog -> string = function
+    Prog (_, package, tld) -> pretty_package package ^ pretty_topleveldecl_list tld ~level:Zero
+
+and pretty_package : package -> string = function
+    Package (_, name) -> "package " ^ name ^ "\n\n"
+
+and pretty_topleveldecl_list (tldl : topleveldecl list) ~level =
+  String.concat (List.map tldl ~f:(pretty_topleveldecl ~level))
+
+and pretty_topleveldecl (tld : topleveldecl) ~level : string = match tld with
+  | FuncDecl (p, i, vsslo, tpo, sl) -> "func " ^ i ^ "(" ^ pretty_option (pretty_varspecsimp_list ~level) vsslo ^ ") " ^ pretty_tp_option tpo ~level ^ pretty_stmt (Block (p, sl)) ~level
+  | Stmt (_, stmt) -> pretty_stmt stmt ~level
+
+and pretty_stmtlist (stmtlist: stmt list) ~level =
+  String.concat (List.map stmtlist ~f:(fun sl -> indent level ^ pretty_stmt sl ~level))
+
+(* Pretty printing statements *)
+and pretty_stmt (stmt : stmt) ~level = match stmt with
+  | Decl (_, declstmt) -> pretty_decl declstmt level
+  | Simple (_, simplestmt) -> pretty_simple simplestmt level ^ "\n"
+  | Return (_, eop) -> "return " ^ pretty_expr_option eop level ^ "\n"
+  | Break _ -> "break\n"
+  | Continue _ -> "continue\n"
+  | Block (_, stmtlist) -> "{\n" ^ pretty_stmtlist stmtlist (Succ level) ^ indent level ^ "}\n"
+  | If (_, ifstmt) -> "if " ^ pretty_if ifstmt level
+  | Switch (_, switchstmt) -> "switch " ^ pretty_switch switchstmt level
+  | For (_, forstmt) -> "for " ^ pretty_for forstmt level
+  | Print (_, printstmt) -> pretty_print printstmt level
+
+(* Pretty printing declarations  *)
+and pretty_decl (declstmt : declstmt) level = match declstmt with
+  | VarDecls (_, [varspec]) -> "var " ^ pretty_var_decl varspec level
+  | TypeDecls (_, [typespec]) -> "type " ^ pretty_type_decl typespec level
+  | VarDecls (_, vslist) -> "var (\n"  ^ pretty_varspecsemi_list vslist (Succ level) ^ indent level ^ ")\n"
+  | TypeDecls (_, tsl) -> "type ( \n" ^ pretty_typespecsemi_list tsl (Succ level) ^ indent level ^ ")\n"
+
+and pretty_varspecsemi_list (vsl : varspec list) level = match vsl with
+  | [] -> ""
+  | h :: t -> indent level ^ pretty_var_decl h level ^ pretty_varspecsemi_list t level
+
+and pretty_typespecsemi_list (tsl : typespec list) level = match tsl with
+  | [] -> ""
+  | h :: t -> indent level ^ pretty_type_decl h level ^ pretty_typespecsemi_list t level
+
+(* Pretty printing variable declarations *)
+and pretty_var_decl (varspec : varspec) level = match varspec with
+  | VarSpecTp (_, varspecsimp, None) -> pretty_varspecsimp varspecsimp ~level ^ "\n"
+  | VarSpecTp (_, varspecsimp, Some exprlist) -> pretty_varspecsimp varspecsimp ~level ^ " = " ^ pretty_exprlist exprlist level ^ "\n"
+  | VarSpecNoTp (_, varlist, exprlist) -> pretty_varlist varlist ^ " = " ^ pretty_exprlist exprlist level ^ "\n"
 
 and pretty_exprlist_option (e : expr list option) level = match e with
   | None -> ""
@@ -241,13 +184,8 @@ and pretty_exprlist_option (e : expr list option) level = match e with
 
 (* Pretty printing type declarations *)
 and pretty_type_decl (typespec : typespec) level = (match typespec with
-  | TpSpec (_,t, tp) -> t ^ " " ^ pretty_tp tp level ^ "\n"
+  | TpSpec (_,t, tp) -> t ^ " " ^ pretty_tp tp ~level ^ "\n"
 						   )
-
-and pretty_struct (vslist : varspecsimp list) level = (match vslist with
-  | [] -> ""
-  | h :: t -> indent level ^ pretty_varspecsimp h level ^ "\n" ^ pretty_struct t level
-				 )
 
 (* Pretty printing simple statements *)
 and pretty_simple (simplestmt : simplestmt) level = (match simplestmt with
@@ -271,19 +209,19 @@ and pretty_lvaluelist  (lvl : lvalue list) level = (match lvl with
 and pretty_lvalue (lv : lvalue) level = (match lv with
   | LSel (_, prim, id, tpor) -> pretty_primary prim level ^ "." ^ id ^ (match !tpor with
 		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
+		     | Some t -> " /* : " ^ pretty_tp t ^ "*/ "
 		    )
   | LArrAccess (_, prim, expr, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr expr level ^ "]" ^ (match !tpor with
 		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
+		     | Some t -> " /* : " ^ pretty_tp t ^ "*/ "
 		    )
   | LSlice (_, prim, eop1, eop2, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option eop1 level ^ " : " ^ pretty_expr_option eop2 level ^ "]" ^ (match !tpor with
 		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
+		     | Some t -> " /* : " ^ pretty_tp t ^ "*/ "
 		    )
   | LSliceCap (_, prim, eop, e1, e2, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option eop level ^ " : " ^ pretty_expr e1 level ^ " : " ^ pretty_expr e2 level ^ "]" ^ (match !tpor with
 		     | None -> ""
-		     | Some t -> " /* : " ^ pretty_tp t Zero ^ "*/ "
+		     | Some t -> " /* : " ^ pretty_tp t ^ "*/ "
 		    )
 					     )
 

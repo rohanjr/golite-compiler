@@ -307,7 +307,7 @@ and gen_arrayaccess (pe : primaryexpr) (e : expr) : string =
   match tp_of_primaryexpr pe with
   | TArray (_, _) -> pe_str ^ "[" ^ e_str ^ "]"
   | TSlice tp ->  "((" ^ gen_tp tp ^ "*) " ^ pe_str ^ ".start)[" ^ e_str ^ "]"
-  | t -> raise (InternalError ("Primary expression " ^ pretty_primary pe Zero ^ " has type " ^ pretty_tp t Zero ^
+  | t -> raise (InternalError ("Primary expression " ^ pretty_primary pe Zero ^ " has type " ^ pretty_tp t ^
                                ", but should have array type for use in an indexing expression."))
 
 and gen_slice (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (eo3 : expr option) : string =
@@ -320,7 +320,7 @@ and gen_slice (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (eo3 : 
       "__new_slice(&" ^ gen_primaryexpr pe ^ "[" ^ low ^ "], " 
         ^ string_of_int ((int_of_string high) - (int_of_string low)) ^ ", "
        ^ string_of_int ((int_of_string max) - (int_of_string low)) ^  ")"
-  | t -> raise (InternalError ("Primary expression " ^ pretty_primary pe Zero ^ " has type " ^ pretty_tp t Zero ^
+  | t -> raise (InternalError ("Primary expression " ^ pretty_primary pe Zero ^ " has type " ^ pretty_tp t ^
                                ", but should have array type for use in a slice expression."))
 
 and gen_block (sl : stmt list) : string = "{\n" ^ String.concat (List.map ~f:gen_stmt sl) ^ "}"
