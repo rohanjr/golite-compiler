@@ -28,20 +28,20 @@ let rec indent : nat -> string = function
   | Succ level -> "   " ^ indent level
 
 let rec pretty : prog -> string = function
-    Prog (_, package, tld) -> pretty_package package ^ pretty_topleveldecl_list tld Zero
+    Prog (_, package, tld) -> pretty_package package ^ pretty_topleveldecl_list tld ~level:Zero
 
 and pretty_package : package -> string = function
     Package (_, name) -> "package " ^ name ^ "\n\n"
 
-and pretty_topleveldecl_list (tldl : topleveldecl list) level = match tldl with
-  | [] -> ""
-  | h :: t -> pretty_topleveldecl h level ^ pretty_topleveldecl_list t level
+and pretty_topleveldecl_list (tldl : topleveldecl list) ~level =
+  String.concat (List.map tldl ~f:(pretty_topleveldecl ~level))
 
-and pretty_topleveldecl (tld : topleveldecl) level = match tld with
+and pretty_topleveldecl (tld : topleveldecl) ~level : string = match tld with
   | FuncDecl (p, i, vsslo, tpo, sl) -> "func " ^ i ^ "(" ^ pretty_varspecsimp_list_option vsslo level ^ ") " ^ pretty_tp_option tpo level ^ pretty_stmt (Block (p, sl)) level
   | Stmt (_, stmt) -> pretty_stmt stmt level
 
-and pretty_stmtlist (stmtlist: stmt list) level = match stmtlist with
+and pretty_stmtlist (stmtlist: stmt list) level =
+  match stmtlist with
   | [] -> ""
   | stmt :: t -> indent level ^ (pretty_stmt stmt level) ^ (pretty_stmtlist t level)
 
@@ -106,24 +106,19 @@ and pretty_varspecsimp_list_option (vsslo : varspecsimp list option) level = mat
   | None -> ""
   | Some vssl -> pretty_varspecsimp_list vssl level
 
-and pretty_varspecsimp_list (vssl : varspecsimp list) level = (match vssl with
-  | [] -> ""
-  | [vss] -> pretty_varspecsimp vss level
-  | h::t -> pretty_varspecsimp h level ^ ", " ^ pretty_varspecsimp_list t level
-							 )
+and pretty_varspecsimp_list (vssl : varspecsimp list) level =
+  String.concat ~sep:", " (List.map vssl ~f:(fun vss -> pretty_varspecsimp vss level))
 
-and pretty_varlist (varlist: id list) = (match varlist with
-  | [] -> raise (Problem "Varlists should be non-empty.") (* Varlists should be non-empty *)
-  | [x] -> x
-  | h::t -> h ^ ", " ^ pretty_varlist t
-					)
+and pretty_varlist (varlist : id list) =
+  if varlist = [] then
+    raise (Problem "Varlists should be non-empty.")
+  else
+    String.concat ~sep:", " varlist
 
 (* Pretty printing expressions*)
-and pretty_exprlist (exprlist: expr list) level = (match exprlist with
-  | [] -> ""
-  | [expr] -> pretty_expr expr level
-  | h :: t -> pretty_expr h level ^ ", " ^ pretty_exprlist t level
-					    )
+and pretty_exprlist (exprlist: expr list) level =
+  String.concat ~sep:", " (List.map exprlist ~f:(fun e -> pretty_expr e level))
+
 and pretty_expr (expr: expr) level = (match expr with
   | Unary (_, u, tpor) -> pretty_unary u level(* ^ (match !tpor with
 		     | None -> ""
@@ -146,14 +141,13 @@ and pretty_unary (u: unaryexpr) level = (match u with
 		    )
 				  )
 
-and pretty_uop (op: uop) = (match op with
+and pretty_uop (op: uop) = match op with
   | UPlus -> "+"
   | UMinus -> "-"
   | LNot -> "!"
   | UBitXor -> "^"
-			   )
 
-and pretty_binop (op: binop) = (match op with
+and pretty_binop (op: binop) = match op with
   | LOr -> "||"
   | LAnd -> "&&"
   | CmpEq -> "=="
@@ -173,7 +167,6 @@ and pretty_binop (op: binop) = (match op with
   | BitClr -> "&^"
   | LShift -> "<<"
   | RShift -> ">>"
-			       )
 
 and pretty_primary (prim : primaryexpr) level = (match prim with
   | Operand (_, oper, tpor) -> pretty_operand oper level (* ^ (match !tpor with
@@ -237,15 +230,13 @@ and pretty_operand (oper : operand) level = (match oper with
 		    )
 				      )
 
-and pretty_expr_option (e : expr option) value = (match e with
-  | Some expr -> pretty_expr expr value
+and pretty_expr_option (e : expr option) level = match e with
   | None -> ""
-					    )
+  | Some expr -> pretty_expr expr level
 
-and pretty_exprlist_option (e : expr list option) level = (match e with
-  | Some exprlist -> pretty_exprlist exprlist level
+and pretty_exprlist_option (e : expr list option) level = match e with
   | None -> ""
-						   )
+  | Some exprlist -> pretty_exprlist exprlist level
 
 
 (* Pretty printing type declarations *)
