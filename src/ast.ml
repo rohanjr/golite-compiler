@@ -11,53 +11,9 @@
 
 open Lexing
 
-type prog = Prog of position * package * topleveldecl list
+type id = string
 
-and package = Package of position * id
-
-and topleveldecl =
-  | FuncDecl of position * id * varspecsimp list option * tp option * stmt list
-  | Stmt of position * stmt
-
-and stmt =
-  | Decl of position * declstmt
-  | Simple of position * simplestmt
-  | Return of position * expr option
-  | Break of position
-  | Continue of position
-  | Block of position * stmt list
-  | If of position * ifstmt
-  | Switch of position * switchstmt
-  | For of position * forstmt
-  | Print of position * printstmt
-
-and simplestmt =
-  | Expr of position * expr
-  | Inc of position * expr
-  | Dec of position * expr
-  | Assign of position * assignop * lvalue * expr
-  | AssignEquals of position * lvalue list * expr list
-  | AssignVar of position * assignop * id * expr
-  | AssignVarEquals of position * id list * expr list
-  | ShortVarDecl of position * id list * expr list * bool list option ref
-
-and lvalue =
-  | LSel of position * primaryexpr * id * tp option ref
-  | LArrAccess of position * primaryexpr * expr * tp option ref
-  | LSlice of position * primaryexpr * expr option * expr option * tp option ref
-  | LSliceCap of position * primaryexpr * expr option * expr * expr * tp option ref
-
-and declstmt =
-  | VarDecls of position * varspec list
-  | TypeDecls of position * typespec list
-
-and varspec =
-  | VarSpecTp of position * varspecsimp * expr list option
-  | VarSpecNoTp of position * id list * expr list
-
-and varspecsimp = id list * tp
-
-and tp =
+type tp =
   | Int | Float64 | Bool | Rune | String | Void
   | FuncTp of tp list * tp
   | TypeVar of id * tp option ref
@@ -65,40 +21,21 @@ and tp =
   | TSlice of tp
   | TStruct of varspecsimp list
 
-and typespec =
-  | TpSpec of position * id * tp
+and varspecsimp = id list * tp
 
-and assignop = (* doesn't contain Equals because we handle it separately *)
-  | PlusEq | MinusEq | TimesEq | DivEq | ModEq
-  | AndEq | OrEq | XOrEq | LShiftEq | RShiftEq | ClrEq
+type binop =
+  | LOr | LAnd
+  | CmpEq | NotEq
+  | LT | GT | LTE | GTE
+  | Plus | Minus
+  | Times | Div | Mod
+  | BitOr | BitAnd
+  | BitXOr | BitClr
+  | LShift | RShift
 
-and ifstmt =
-  | IfOnly of position * ifcond * stmt list
-  | IfElse of position * ifcond * stmt list * stmt list
-  | IfElseIf of position * ifcond * stmt list * ifstmt
+type uop = UPlus | UMinus | LNot | UBitXor
 
-and ifcond = IfCond of position * simplestmt option * expr
-
-and switchstmt = SwitchStmt of position * switchcond option * exprcaseclause list
-
-and switchcond = SwitchCond of position * simplestmt option * expr option
-
-and exprcaseclause = ExprCaseClause of position * exprswitchcase * stmt list
-
-and exprswitchcase =
-  | Case of position * expr list
-  | Default of position
-
-and forstmt =
-  | InfLoop of position * stmt list
-  | WhileLoop of position * expr * stmt list
-  | ForLoop of position * simplestmt option * expr option * simplestmt option * stmt list
-
-and printstmt =
-  | PrintStmt of position * expr list option
-  | PrintlnStmt of position * expr list option
-
-and expr =
+type expr =
   | Unary of position * unaryexpr * tp option ref
   | Binary of position * binop * expr * expr * tp option ref
 
@@ -116,8 +53,6 @@ and primaryexpr =
   | Append of position * id * expr * tp option ref
   | Cast of position * tp * expr * tp option ref
 
-and uop = UPlus | UMinus | LNot | UBitXor
-
 and operand =
   | Parens of position * expr * tp option ref
   | Var of position * id * tp option ref
@@ -126,14 +61,80 @@ and operand =
   | RuneLit of position * string * tp option ref
   | StrLit of position * string * tp option ref
 
-and id = string
+type lvalue =
+  | LSel of position * primaryexpr * id * tp option ref
+  | LArrAccess of position * primaryexpr * expr * tp option ref
+  | LSlice of position * primaryexpr * expr option * expr option * tp option ref
+  | LSliceCap of position * primaryexpr * expr option * expr * expr * tp option ref
 
-and binop =
-  | LOr | LAnd
-  | CmpEq | NotEq
-  | LT | GT | LTE | GTE
-  | Plus | Minus
-  | Times | Div | Mod
-  | BitOr | BitAnd
-  | BitXOr | BitClr
-  | LShift | RShift
+type assignop = (* doesn't contain Equals because we handle it separately *)
+  | PlusEq | MinusEq | TimesEq | DivEq | ModEq
+  | AndEq | OrEq | XOrEq | LShiftEq | RShiftEq | ClrEq
+
+type simplestmt =
+  | Expr of position * expr
+  | Inc of position * expr
+  | Dec of position * expr
+  | Assign of position * assignop * lvalue * expr
+  | AssignEquals of position * lvalue list * expr list
+  | AssignVar of position * assignop * id * expr
+  | AssignVarEquals of position * id list * expr list
+  | ShortVarDecl of position * id list * expr list * bool list option ref
+
+type varspec =
+  | VarSpecTp of position * varspecsimp * expr list option
+  | VarSpecNoTp of position * id list * expr list
+
+type typespec =
+  | TpSpec of position * id * tp
+
+type declstmt =
+  | VarDecls of position * varspec list
+  | TypeDecls of position * typespec list
+
+type ifcond = IfCond of position * simplestmt option * expr
+
+(* For switch statements *)
+type switchcond = SwitchCond of position * simplestmt option * expr option
+
+type exprswitchcase =
+  | Case of position * expr list
+  | Default of position
+
+type printstmt =
+  | PrintStmt of position * expr list option
+  | PrintlnStmt of position * expr list option
+
+type stmt =
+  | Decl of position * declstmt
+  | Simple of position * simplestmt
+  | Return of position * expr option
+  | Break of position
+  | Continue of position
+  | Block of position * stmt list
+  | If of position * ifstmt
+  | Switch of position * switchstmt
+  | For of position * forstmt
+  | Print of position * printstmt
+
+and ifstmt =
+  | IfOnly of position * ifcond * stmt list
+  | IfElse of position * ifcond * stmt list * stmt list
+  | IfElseIf of position * ifcond * stmt list * ifstmt
+
+and switchstmt = SwitchStmt of position * switchcond option * exprcaseclause list
+
+and exprcaseclause = ExprCaseClause of position * exprswitchcase * stmt list
+
+and forstmt =
+  | InfLoop of position * stmt list
+  | WhileLoop of position * expr * stmt list
+  | ForLoop of position * simplestmt option * expr option * simplestmt option * stmt list
+
+type package = Package of position * id
+
+type topleveldecl =
+  | FuncDecl of position * id * varspecsimp list option * tp option * stmt list
+  | Stmt of position * stmt
+
+type prog = Prog of position * package * topleveldecl list
