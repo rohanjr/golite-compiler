@@ -13,6 +13,9 @@
   * better to have level before node to print
   * Also use concatmap instead of pattern matching everywhere.
   * And using "nat" is kind of strange. *)
+
+open Core.Std
+
 exception Problem of string
 open Ast
 
@@ -20,36 +23,30 @@ type nat =
   | Zero
   | Succ of nat
 
-let rec indent level = (match level with
+let rec indent : nat -> string = function
   | Zero -> ""
   | Succ level -> "   " ^ indent level
-	       )
 
-let rec pretty (ast : prog) = (let Prog (_, package, tld) = ast in
-  pretty_package package ^ pretty_topleveldecl_list tld Zero
-				  )
+let rec pretty : prog -> string = function
+    Prog (_, package, tld) -> pretty_package package ^ pretty_topleveldecl_list tld Zero
 
-and pretty_package (package: package) = (let Package (_, name) = package in
-			     "package "^ name ^"\n\n"
-			     )
+and pretty_package : package -> string = function
+    Package (_, name) -> "package " ^ name ^ "\n\n"
 
-and pretty_topleveldecl_list (tldl : topleveldecl list) level = (match tldl with
+and pretty_topleveldecl_list (tldl : topleveldecl list) level = match tldl with
   | [] -> ""
   | h :: t -> pretty_topleveldecl h level ^ pretty_topleveldecl_list t level
-								)
 
-and pretty_topleveldecl (tld : topleveldecl) level = (match tld with
+and pretty_topleveldecl (tld : topleveldecl) level = match tld with
   | FuncDecl (p, i, vsslo, tpo, sl) -> "func " ^ i ^ "(" ^ pretty_varspecsimp_list_option vsslo level ^ ") " ^ pretty_tp_option tpo level ^ pretty_stmt (Block (p, sl)) level
   | Stmt (_, stmt) -> pretty_stmt stmt level
-						     )
 
-and pretty_stmtlist (stmtlist: stmt list) level = ( match stmtlist with
+and pretty_stmtlist (stmtlist: stmt list) level = match stmtlist with
   | [] -> ""
   | stmt :: t -> indent level ^ (pretty_stmt stmt level) ^ (pretty_stmtlist t level)
-				     )
 
 (* Pretty printing statements *)
-and pretty_stmt (stmt : stmt) level = (match stmt with
+and pretty_stmt (stmt : stmt) level = match stmt with
   | Decl (_, declstmt) -> pretty_decl declstmt level
   | Simple (_, simplestmt) -> pretty_simple simplestmt level ^ "\n"
   | Return (_, eop) -> "return " ^ pretty_expr_option eop level ^ "\n"
@@ -60,63 +57,54 @@ and pretty_stmt (stmt : stmt) level = (match stmt with
   | Switch (_, switchstmt) -> "switch " ^ pretty_switch switchstmt level
   | For (_, forstmt) -> "for " ^ pretty_for forstmt level
   | Print (_, printstmt) -> pretty_print printstmt level
-			     )
 
 (* Pretty printing declarations  *)
-and pretty_decl (declstmt : declstmt ) level = (match declstmt with
+and pretty_decl (declstmt : declstmt ) level = match declstmt with
   | VarDecls (_, [varspec]) -> "var " ^ pretty_var_decl varspec level
   | TypeDecls (_, [typespec]) -> "type " ^ pretty_type_decl typespec level
   | VarDecls (_, vslist) -> "var (\n"  ^ pretty_varspecsemi_list vslist (Succ level) ^ indent level ^ ")\n"
   | TypeDecls (_, tsl) -> "type ( \n" ^ pretty_typespecsemi_list tsl (Succ level) ^ indent level ^ ")\n"
-					       )
 
-and pretty_varspecsemi_list (vsl : varspec list) level = (match vsl with
+and pretty_varspecsemi_list (vsl : varspec list) level = match vsl with
   | [] -> ""
   | h :: t -> indent level ^ pretty_var_decl h level ^ pretty_varspecsemi_list t level
-				 )
 
-and pretty_typespecsemi_list (tsl : typespec list) level = (match tsl with
+and pretty_typespecsemi_list (tsl : typespec list) level = match tsl with
   | [] -> ""
   | h :: t -> indent level ^ pretty_type_decl h level ^ pretty_typespecsemi_list t level
-				 )
 
 (* Pretty printing variable declarations *)
-and pretty_var_decl (varspec : varspec) level = (match varspec with
+and pretty_var_decl (varspec : varspec) level = match varspec with
   | VarSpecTp (_, varspecsimp, None) -> pretty_varspecsimp varspecsimp level ^ "\n"
   | VarSpecTp (_, varspecsimp, Some exprlist) -> pretty_varspecsimp varspecsimp level ^ " = " ^ pretty_exprlist exprlist level ^ "\n"
   | VarSpecNoTp (_, varlist, exprlist) -> pretty_varlist varlist ^ " = " ^ pretty_exprlist exprlist level ^ "\n"
-				    )
 
-and pretty_varspecsimp (varspecsimp : varspecsimp) level = ( match varspecsimp with
+and pretty_varspecsimp (varspecsimp : varspecsimp) level = match varspecsimp with
   | (varlist, tp) -> pretty_varlist varlist ^ " " ^ pretty_tp tp level
-)
 
-and pretty_tp_option (tpo : tp option) level = (match tpo with
+and pretty_tp_option (tpo : tp option) level = match tpo with
   | None -> ""
   | Some t -> pretty_tp t level ^ " "
-					     )
 
-and pretty_tp (tp : tp) level = (match tp with
+and pretty_tp (tp : tp) level = match tp with
   | Void -> "void"
   | Int -> "int"
   | Float64 -> "float64"
   | Bool -> "bool"
   | Rune -> "rune"
   | String -> "string"
-  | FuncTp (tl, rt) -> "(" ^ (match tl with 
+  | FuncTp (tl, rt) -> "(" ^ begin match tl with 
 			      | [] -> "void"             
-			      | _ -> String.concat " * " (List.map (fun t -> pretty_tp t level) tl))
+			      | _ -> String.concat ~sep:" * " (List.map ~f:(fun t -> pretty_tp t level) tl) end
                        ^ ") -> " ^ pretty_tp rt level
   | TypeVar (id, _) -> id
   | TSlice (t) -> "[]" ^ pretty_tp t level
   | TArray (size, t) -> "[" ^ string_of_int size ^ "]" ^ pretty_tp t level
   | TStruct (vsslist) -> "struct {\n" ^ pretty_struct vsslist (Succ level) ^ indent level ^ "}"
-			 )
 
-and pretty_varspecsimp_list_option (vsslo : varspecsimp list option) level = (match vsslo with
+and pretty_varspecsimp_list_option (vsslo : varspecsimp list option) level = match vsslo with
   | None -> ""
   | Some vssl -> pretty_varspecsimp_list vssl level
-)
 
 and pretty_varspecsimp_list (vssl : varspecsimp list) level = (match vssl with
   | [] -> ""
