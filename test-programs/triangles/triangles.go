@@ -59,5 +59,5 @@ func printGrid(r, c int, xmin, ymin, xmax, ymax, x1, y1, x2, y2, x3, y3 float64)
 }
 
 func main() {
-   printGrid(10, 10, 0., 0., 9., 9., 1., 1., 8., 1., 8., 8.)
+   printGrid(50, 100, 0., 0., 99., 99., 10., 10., 80., 30., 50., 80.)
 }
