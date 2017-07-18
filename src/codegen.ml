@@ -341,4 +341,4 @@ and gen_tp : tp -> string = function
         let tp_str = gen_tp t in
         String.concat ~sep:"; " (List.map ~f:(fun i -> tp_str ^ " " ^ i) il)
     in
-    "struct {" ^ String.concat ~sep:"; " (List.map ~f:gen_varspecsimp vssl) ^ "}"
+    "struct {" ^ String.concat ~sep:" " (List.map vssl ~f:(fun vss -> gen_varspecsimp vss ^ ";")) ^ "}"
