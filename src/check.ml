@@ -573,7 +573,7 @@ and vss_lookup (i : id) (vss : varspecsimp) : tp option = match vss with
   | (il, t) -> if (List.mem il i) then (Some t) else None
 
 and struct_lookup (i : id) (vssl : varspecsimp list) : tp = match vssl with
-  | [] -> raise (TypeError ("Expected field " ^ i ^ "in structure " ^ pretty_varspecsimp_list vssl Zero ^ "."))
+  | [] -> raise (TypeError ("Expected field " ^ i ^ "in structure " ^ pretty_varspecsimp_list ~level:Zero vssl ^ "."))
   | vss :: vssl -> (match vss_lookup i vss with
     | Some t -> t
     | None -> struct_lookup i vssl)

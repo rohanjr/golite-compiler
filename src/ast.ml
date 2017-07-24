@@ -94,7 +94,6 @@ type declstmt =
 
 type ifcond = IfCond of position * simplestmt option * expr
 
-(* For switch statements *)
 type switchcond = SwitchCond of position * simplestmt option * expr option
 
 type exprswitchcase =
