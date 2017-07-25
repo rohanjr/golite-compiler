@@ -198,27 +198,33 @@ let pretty_printstmt ~level : printstmt -> string = function
 let rec pretty_stmt ~level : stmt -> string = function
   | Decl (_, declstmt) -> pretty_declstmt ~level declstmt
   | Simple (_, simplestmt) -> pretty_simplestmt ~level simplestmt ^ "\n"
-  | Return (_, eop) -> "return " ^ pretty_expr_option ~level eop ^ "\n"
+  | Return (_, eo) -> "return" ^ pretty_option ~f:(fun e -> " " ^ pretty_expr ~level e) eo ^ "\n"
   | Break _ -> "break\n"
   | Continue _ -> "continue\n"
-  | Block (_, stmtlist) -> "{\n" ^ pretty_stmtlist ~level:(Succ level) stmtlist ^ indent level ^ "}\n"
+  | Block (_, sl) -> pretty_block ~level sl ^ "\n"
   | If (_, ifstmt) -> "if " ^ pretty_ifstmt ~level ifstmt
-  | Switch (_, switchstmt) -> "switch " ^ pretty_switchstmt ~level switchstmt
+  | Switch (_, switchstmt) -> pretty_switchstmt ~level switchstmt
   | For (_, forstmt) -> "for " ^ pretty_forstmt ~level forstmt
   | Print (_, printstmt) -> pretty_printstmt ~level printstmt
 
-and pretty_stmtlist ~level (sl: stmt list) =
+and pretty_stmtlist ~level (sl: stmt list) : string =
   String.concat (List.map ~f:(fun s -> indent level ^ pretty_stmt ~level s) sl)
 
+and pretty_block ~level (sl: stmt list) : string =
+  "{\n" ^ pretty_stmtlist ~level:(Succ level) sl ^ indent level ^ "}"
+
 and pretty_ifstmt ~level : ifstmt -> string = function
-  | IfOnly (p, ifcond, block) -> pretty_ifcond ~level ifcond ^ " " ^ pretty_stmt ~level (Block (p, block))
-  | IfElse (p, ifcond, b1, b2) -> (let block = pretty_stmt ~level (Block (p, b1)) in
-				pretty_ifcond ~level ifcond ^ " " ^ String.sub block 0 ((String.length block) -1) ^ " else " ^ pretty_stmt ~level (Block (p, b2)))
-  | IfElseIf (p, ifcond, block, ifstmt) -> (let block = pretty_stmt ~level (Block (p, block)) in pretty_ifcond ~level ifcond ^ " " ^ String.sub block 0 ((String.length block) -1) ^ indent level ^ "else if " ^ pretty_ifstmt ~level ifstmt)
+  | IfOnly (p, ifcond, sl) -> pretty_ifcond ~level ifcond ^ " " ^ pretty_block ~level sl ^ "\n"
+  | IfElse (p, ifcond, b1, b2) ->
+    pretty_ifcond ~level ifcond ^ " " ^ pretty_block ~level b1 ^
+    " else " ^ pretty_block ~level b2 ^ "\n"
+  | IfElseIf (p, ifcond, block, ifstmt) ->
+    pretty_ifcond ~level ifcond ^ " " ^ pretty_block ~level block ^
+    " else if " ^ pretty_ifstmt ~level ifstmt
 
 and pretty_switchstmt ~level : switchstmt -> string = function
   | SwitchStmt (_, sco, eccl) ->
-    pretty_option ~f:(pretty_switch_cond ~level) sco ^ "{\n" ^
+    "switch " ^ pretty_option ~f:(pretty_switch_cond ~level) sco ^ "{\n" ^
     String.concat (List.map ~f:(pretty_exprcaseclause ~level:(Succ level)) eccl) ^
     indent level ^ "}\n"
 
@@ -227,12 +233,12 @@ and pretty_exprcaseclause ~level : exprcaseclause -> string = function
     pretty_exprswitchcase ~level esc ^ " : " ^ pretty_stmtlist ~level stmtlist
 
 and pretty_forstmt ~level : forstmt -> string = function
-  | InfLoop (p, stmtlist) -> pretty_stmt ~level (Block (p, stmtlist))
-  | WhileLoop (p, e, stmtlist) -> pretty_expr ~level e ^ " " ^ pretty_stmt ~level (Block (p, stmtlist))
+  | InfLoop (p, stmtlist) -> pretty_block ~level stmtlist ^ "\n"
+  | WhileLoop (p, e, stmtlist) -> pretty_expr ~level e ^ " " ^ pretty_block ~level stmtlist ^ "\n"
   | ForLoop (p, s1, eo, s2, stmtlist) ->
     pretty_option ~f:(pretty_simplestmt ~level) s1 ^ "; " ^
     pretty_expr_option ~level eo ^ "; " ^
-    pretty_option ~f:(pretty_simplestmt ~level) s2 ^ pretty_stmt ~level (Block (p, stmtlist))
+    pretty_option ~f:(pretty_simplestmt ~level) s2 ^ pretty_block ~level stmtlist ^ "\n"
 
 let pretty_package : package -> string = function
   | Package (_, name) -> "package " ^ name ^ "\n\n"
@@ -240,7 +246,7 @@ let pretty_package : package -> string = function
 let pretty_topleveldecl ~level : topleveldecl -> string = function
   | FuncDecl (p, i, vsslo, tpo, sl) ->
     "func " ^ i ^ "(" ^ pretty_option ~f:(pretty_varspecsimp_list ~level) vsslo ^ ") " ^
-    pretty_tp_option ~level tpo ^ pretty_stmt ~level (Block (p, sl))
+    pretty_tp_option ~level tpo ^ pretty_block ~level sl ^ "\n"
   | Stmt (_, stmt) -> pretty_stmt ~level stmt
 
 let pretty_prog : prog -> string = function
