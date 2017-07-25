@@ -27,7 +27,7 @@ let rec indent : nat -> string = function
   | Zero -> ""
   | Succ level -> "   " ^ indent level
 
-let pretty_option (f : 'a -> string) : 'a option -> string = Option.value_map ~default:"" ~f
+let pretty_option ~(f : 'a -> string) : 'a option -> string = Option.value_map ~default:"" ~f
 
 let pretty_varlist : id list -> string = function
   | [] -> raise (Problem "Varlists should be non-empty.")
@@ -56,9 +56,9 @@ and pretty_struct ~level (vssl : varspecsimp list) : string =
 and pretty_varspecsimp ~level : varspecsimp -> string = function
   | (varlist, tp) -> pretty_varlist varlist ^ " " ^ pretty_tp tp ~level
 
-let pretty_tp_option ~level : tp option -> string = pretty_option (fun t -> pretty_tp t ~level ^ " ")
+let pretty_tp_option ~level : tp option -> string = pretty_option ~f:(fun t -> pretty_tp t ~level ^ " ")
 
-let pretty_comment_tp : tp option -> string = pretty_option (fun t -> " /* : " ^ pretty_tp t ^ "*/ ")
+let pretty_comment_tp : tp option -> string = pretty_option ~f:(fun t -> " /* : " ^ pretty_tp t ^ "*/ ")
 
 let pretty_varspecsimp_list ~level (vssl : varspecsimp list) : string =
   String.concat ~sep:", " (List.map ~f:(pretty_varspecsimp ~level) vssl)
@@ -90,16 +90,16 @@ let pretty_uop : uop -> string = function
   | LNot -> "!"
   | UBitXor -> "^"
 
-let rec pretty_expr (e : expr) ~level = match e with
+let rec pretty_expr ?(level=Zero) : expr -> string = function
   | Unary (_, u, tpor) -> pretty_unary u level
   | Binary (_, op, e1, e2, tpor) ->
-    pretty_expr e1 ~level ^ " " ^ pretty_binop op ^ " " ^ pretty_expr e2 ~level ^ pretty_comment_tp !tpor
+    pretty_expr ~level e1 ^ " " ^ pretty_binop op ^ " " ^
+    pretty_expr ~level e2 ^ pretty_comment_tp !tpor
 
-and pretty_expr_option (eo : expr option) level =
-  pretty_option (pretty_expr ~level) eo
+and pretty_expr_option ~level : expr option -> string = pretty_option ~f:(pretty_expr ~level)
 
-and pretty_exprlist (exprlist: expr list) level =
-  String.concat ~sep:", " (List.map exprlist ~f:(pretty_expr ~level))
+and pretty_exprlist ~level (el: expr list) : string =
+  String.concat ~sep:", " (List.map ~f:(pretty_expr ~level) el)
 
 and pretty_unary (u : unaryexpr) level = match u with
   | Primary (_, prim, tpor) -> pretty_primary prim level
@@ -109,15 +109,15 @@ and pretty_unary (u : unaryexpr) level = match u with
 and pretty_primary (prim : primaryexpr) level = match prim with
   | Operand (_, oper, tpor) -> pretty_operand oper level
   | Sel (_, prim, id, tpor) -> pretty_primary prim level ^ "." ^ id ^ pretty_comment_tp !tpor
-  | ArrAccess (_, prim, expr, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr expr ~level ^ "]" ^ pretty_comment_tp !tpor
-  | Slice (_, prim, e1op, e2op, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option e1op level ^ " : " ^ pretty_expr_option e2op level ^ "]" ^ pretty_comment_tp !tpor
-  | SliceCap (_, prim, eop, e1, e2, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option eop level ^ " : " ^ pretty_expr e1 ~level ^ " : " ^ pretty_expr e2 ~level ^ "]" ^ pretty_comment_tp !tpor
-  | FunApp (_, prim, el, tpor) -> pretty_primary prim level ^ "(" ^ pretty_exprlist el level ^ ")" ^ pretty_comment_tp !tpor
-  | Append (_, x, expr, tpor) -> "append" ^ "(" ^ x ^ ", " ^ pretty_expr expr ~level ^ ")" ^ pretty_comment_tp !tpor
-  | Cast (_, tp, expr, tpor) -> pretty_tp tp ~level ^ "(" ^ pretty_expr expr ~level ^ ")" ^ pretty_comment_tp !tpor
+  | ArrAccess (_, prim, e, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr ~level e ^ "]" ^ pretty_comment_tp !tpor
+  | Slice (_, prim, e1op, e2op, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option ~level e1op ^ " : " ^ pretty_expr_option ~level e2op ^ "]" ^ pretty_comment_tp !tpor
+  | SliceCap (_, prim, eop, e1, e2, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option ~level eop ^ " : " ^ pretty_expr ~level e1 ^ " : " ^ pretty_expr ~level e2 ^ "]" ^ pretty_comment_tp !tpor
+  | FunApp (_, prim, el, tpor) -> pretty_primary prim level ^ "(" ^ pretty_exprlist ~level el ^ ")" ^ pretty_comment_tp !tpor
+  | Append (_, x, e, tpor) -> "append" ^ "(" ^ x ^ ", " ^ pretty_expr ~level e ^ ")" ^ pretty_comment_tp !tpor
+  | Cast (_, tp, e, tpor) -> pretty_tp tp ~level ^ "(" ^ pretty_expr ~level e ^ ")" ^ pretty_comment_tp !tpor
 
 and pretty_operand (oper : operand) level = match oper with
-  | Parens (_, expr, tpor) -> "(" ^ pretty_expr expr ~level ^ ")"  ^ pretty_comment_tp !tpor
+  | Parens (_, e, tpor) -> "(" ^ pretty_expr ~level e ^ ")"  ^ pretty_comment_tp !tpor
   | Var (_, id, tpor) -> id ^ pretty_comment_tp !tpor
   | IntLit (_, i, tpor) -> string_of_int i ^ pretty_comment_tp !tpor
   | FloatLit (_, f, tpor) -> string_of_float f ^ pretty_comment_tp !tpor
@@ -126,11 +126,11 @@ and pretty_operand (oper : operand) level = match oper with
 
 let pretty_lvalue ~level : lvalue -> string = function
   | LSel (_, prim, id, tpor) -> pretty_primary prim level ^ "." ^ id ^ pretty_comment_tp !tpor
-  | LArrAccess (_, prim, expr, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr expr level ^ "]" ^ pretty_comment_tp !tpor
+  | LArrAccess (_, prim, e, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr ~level e ^ "]" ^ pretty_comment_tp !tpor
   | LSlice (_, prim, eop1, eop2, tpor) ->
-    pretty_primary prim level ^ "[" ^ pretty_expr_option eop1 level ^ " : " ^ pretty_expr_option eop2 level ^ "]" ^ pretty_comment_tp !tpor
+    pretty_primary prim level ^ "[" ^ pretty_expr_option ~level eop1 ^ " : " ^ pretty_expr_option ~level eop2 ^ "]" ^ pretty_comment_tp !tpor
   | LSliceCap (_, prim, eop, e1, e2, tpor) ->
-    pretty_primary prim level ^ "[" ^ pretty_expr_option eop level ^ " : " ^ pretty_expr e1 level ^ " : " ^ pretty_expr e2 level ^ "]" ^ pretty_comment_tp !tpor
+    pretty_primary prim level ^ "[" ^ pretty_expr_option ~level eop ^ " : " ^ pretty_expr ~level e1 ^ " : " ^ pretty_expr ~level e2 ^ "]" ^ pretty_comment_tp !tpor
 
 let pretty_lvaluelist ~level : lvalue list -> string = function
   | [] -> raise (Problem " Lvaluelist should not be empty.")
@@ -150,18 +150,18 @@ let pretty_assignop : assignop -> string = function
   | ClrEq -> "&^="
 
 let pretty_simplestmt ~level : simplestmt -> string = function
-  | Expr (_, expr) -> pretty_expr expr level
-  | Inc (_, expr) -> pretty_expr expr level ^ "++"
-  | Dec (_, expr) -> pretty_expr expr level ^ "--"
-  | AssignEquals (_, lvl, el) -> pretty_lvaluelist ~level lvl ^ " = " ^ pretty_exprlist el level
-  | Assign (_, assop, lv, e) -> pretty_lvalue ~level lv ^ " " ^ pretty_assignop assop ^ " " ^ pretty_expr e level
-  | AssignVarEquals (_, vl, el) -> pretty_varlist vl ^ " = " ^ pretty_exprlist el level
-  | AssignVar (_, assop, v, e) -> v ^ " " ^ pretty_assignop assop ^ " " ^ pretty_expr e level
-  | ShortVarDecl (_, idlist, exprlist, dlor) -> pretty_varlist idlist ^ " := " ^ pretty_exprlist exprlist level
+  | Expr (_, e) -> pretty_expr ~level e
+  | Inc (_, e) -> pretty_expr ~level e ^ "++"
+  | Dec (_, e) -> pretty_expr ~level e ^ "--"
+  | AssignEquals (_, lvl, el) -> pretty_lvaluelist ~level lvl ^ " = " ^ pretty_exprlist ~level el
+  | Assign (_, assop, lv, e) -> pretty_lvalue ~level lv ^ " " ^ pretty_assignop assop ^ " " ^ pretty_expr ~level e
+  | AssignVarEquals (_, vl, el) -> pretty_varlist vl ^ " = " ^ pretty_exprlist ~level el
+  | AssignVar (_, assop, v, e) -> v ^ " " ^ pretty_assignop assop ^ " " ^ pretty_expr ~level e
+  | ShortVarDecl (_, idlist, el, dlor) -> pretty_varlist idlist ^ " := " ^ pretty_exprlist ~level el
 
 let pretty_varspec ~level : varspec -> string = function
-  | VarSpecTp (_, vss, elo) -> pretty_varspecsimp ~level vss ^ pretty_option (fun el -> " = " ^ pretty_exprlist el level) elo ^ "\n"
-  | VarSpecNoTp (_, idl, el) -> pretty_varlist idl ^ " = " ^ pretty_exprlist el level ^ "\n"
+  | VarSpecTp (_, vss, elo) -> pretty_varspecsimp ~level vss ^ pretty_option ~f:(fun el -> " = " ^ pretty_exprlist ~level el) elo ^ "\n"
+  | VarSpecNoTp (_, idl, el) -> pretty_varlist idl ^ " = " ^ pretty_exprlist ~level el ^ "\n"
 
 let pretty_typespec ~level : typespec -> string = function
   | TpSpec (_, t, tp) -> t ^ " " ^ pretty_tp ~level tp ^ "\n"
@@ -179,94 +179,71 @@ let pretty_declstmt ~level : declstmt -> string = function
   | TypeDecls (_, tsl) -> "type ( \n" ^ pretty_typespecsemi_list tsl (Succ level) ^ indent level ^ ")\n"
 
 let pretty_ifcond ~level : ifcond -> string = function
-  | IfCond (_, sso, expr) -> pretty_option (fun ss -> pretty_simplestmt ~level ss ^ "; ") sso ^ pretty_expr expr level
+  | IfCond (_, sso, e) -> pretty_option ~f:(fun ss -> pretty_simplestmt ~level ss ^ "; ") sso ^ pretty_expr ~level e
 
-let rec pretty : prog -> string = function
-    Prog (_, package, tld) -> pretty_package package ^ pretty_topleveldecl_list tld ~level:Zero
+let pretty_switch_cond ~level : switchcond -> string = function
+  | SwitchCond (_, None, None) -> (* TODO handle this case: isn't it legal? *)
+    raise (Problem "Switch condition lacks both statement and expression")
+  | SwitchCond (_, None, eo) -> pretty_expr_option ~level eo
+  | SwitchCond (_, Some stmt, eo) -> pretty_simplestmt ~level stmt ^ " ; " ^ pretty_expr_option ~level eo
 
-and pretty_package : package -> string = function
-    Package (_, name) -> "package " ^ name ^ "\n\n"
+let pretty_exprswitchcase ~level : exprswitchcase -> string = function
+  | Default _ -> indent level ^  "default"
+  | Case (_, el) -> indent level ^ "case " ^ pretty_exprlist ~level el
 
-and pretty_topleveldecl_list (tldl : topleveldecl list) ~level =
-  String.concat (List.map tldl ~f:(pretty_topleveldecl ~level))
+let pretty_printstmt ~level : printstmt -> string = function
+  | PrintStmt (_, elo) -> "print(" ^ pretty_option ~f:(pretty_exprlist ~level) elo ^ ")\n"
+  | PrintlnStmt (_, elo) -> "println(" ^ pretty_option ~f:(pretty_exprlist ~level) elo ^ ")\n"
 
-and pretty_topleveldecl (tld : topleveldecl) ~level : string = match tld with
-  | FuncDecl (p, i, vsslo, tpo, sl) -> "func " ^ i ^ "(" ^ pretty_option (pretty_varspecsimp_list ~level) vsslo ^ ") " ^ pretty_tp_option tpo ~level ^ pretty_stmt (Block (p, sl)) ~level
-  | Stmt (_, stmt) -> pretty_stmt stmt ~level
-
-and pretty_stmtlist (stmtlist: stmt list) ~level =
-  String.concat (List.map stmtlist ~f:(fun sl -> indent level ^ pretty_stmt sl ~level))
-
-(* Pretty printing statements *)
-and pretty_stmt (stmt : stmt) ~level = match stmt with
+let rec pretty_stmt ~level : stmt -> string = function
   | Decl (_, declstmt) -> pretty_declstmt ~level declstmt
   | Simple (_, simplestmt) -> pretty_simplestmt ~level simplestmt ^ "\n"
-  | Return (_, eop) -> "return " ^ pretty_expr_option eop level ^ "\n"
+  | Return (_, eop) -> "return " ^ pretty_expr_option ~level eop ^ "\n"
   | Break _ -> "break\n"
   | Continue _ -> "continue\n"
-  | Block (_, stmtlist) -> "{\n" ^ pretty_stmtlist stmtlist (Succ level) ^ indent level ^ "}\n"
-  | If (_, ifstmt) -> "if " ^ pretty_if ifstmt level
-  | Switch (_, switchstmt) -> "switch " ^ pretty_switch switchstmt level
-  | For (_, forstmt) -> "for " ^ pretty_for forstmt level
-  | Print (_, printstmt) -> pretty_print printstmt level
+  | Block (_, stmtlist) -> "{\n" ^ pretty_stmtlist ~level:(Succ level) stmtlist ^ indent level ^ "}\n"
+  | If (_, ifstmt) -> "if " ^ pretty_ifstmt ~level ifstmt
+  | Switch (_, switchstmt) -> "switch " ^ pretty_switchstmt ~level switchstmt
+  | For (_, forstmt) -> "for " ^ pretty_forstmt ~level forstmt
+  | Print (_, printstmt) -> pretty_printstmt ~level printstmt
 
-and pretty_exprlist_option (e : expr list option) level = match e with
-  | None -> ""
-  | Some exprlist -> pretty_exprlist exprlist level
+and pretty_stmtlist ~level (sl: stmt list) =
+  String.concat (List.map ~f:(fun s -> indent level ^ pretty_stmt ~level s) sl)
 
+and pretty_ifstmt ~level : ifstmt -> string = function
+  | IfOnly (p, ifcond, block) -> pretty_ifcond ~level ifcond ^ " " ^ pretty_stmt ~level (Block (p, block))
+  | IfElse (p, ifcond, b1, b2) -> (let block = pretty_stmt ~level (Block (p, b1)) in
+				pretty_ifcond ~level ifcond ^ " " ^ String.sub block 0 ((String.length block) -1) ^ " else " ^ pretty_stmt ~level (Block (p, b2)))
+  | IfElseIf (p, ifcond, block, ifstmt) -> (let block = pretty_stmt ~level (Block (p, block)) in pretty_ifcond ~level ifcond ^ " " ^ String.sub block 0 ((String.length block) -1) ^ indent level ^ "else if " ^ pretty_ifstmt ~level ifstmt)
 
-(* Pretty printing if statements *)
-and pretty_if (ifstmt : ifstmt) level = (match ifstmt with
-  | IfOnly (p, ifcond, block) -> pretty_ifcond ~level ifcond ^ " " ^ pretty_stmt (Block (p, block)) level
-  | IfElse (p, ifcond, b1, b2) -> (let block = pretty_stmt (Block (p, b1)) level in
-				pretty_ifcond ~level ifcond ^ " " ^ String.sub block 0 ((String.length block) -1) ^ " else " ^ pretty_stmt (Block (p, b2)) level )
-  | IfElseIf (p, ifcond, block, ifstmt) -> (let block = pretty_stmt (Block (p, block)) level in pretty_ifcond ~level ifcond ^ " " ^ String.sub block 0 ((String.length block) -1) ^ indent level ^ "else if " ^ pretty_if (ifstmt) level)
-			     )
+and pretty_switchstmt ~level : switchstmt -> string = function
+  | SwitchStmt (_, sco, eccl) ->
+    pretty_option ~f:(pretty_switch_cond ~level) sco ^ "{\n" ^
+    String.concat (List.map ~f:(pretty_exprcaseclause ~level:(Succ level)) eccl) ^
+    indent level ^ "}\n"
 
-and pretty_simple_option (so: simplestmt option) level = (match so with
-  | None -> ""
-  | Some s -> pretty_simplestmt ~level s
-						  )
+and pretty_exprcaseclause ~level : exprcaseclause -> string = function
+  | ExprCaseClause (_, esc, stmtlist) ->
+    pretty_exprswitchcase ~level esc ^ " : " ^ pretty_stmtlist ~level stmtlist
 
-(* Pretty printing switch statements *)
-and pretty_switch (switchstmt : switchstmt) level = (match switchstmt with
-  | SwitchStmt (_, sco, ecclist) -> pretty_switch_cond_option sco level ^ "{\n" ^ pretty_expr_caseclause_list ecclist (Succ level) ^ indent (level) ^ "}\n"
-				     )
+and pretty_forstmt ~level : forstmt -> string = function
+  | InfLoop (p, stmtlist) -> pretty_stmt ~level (Block (p, stmtlist))
+  | WhileLoop (p, e, stmtlist) -> pretty_expr ~level e ^ " " ^ pretty_stmt ~level (Block (p, stmtlist))
+  | ForLoop (p, s1, eo, s2, stmtlist) ->
+    pretty_option ~f:(pretty_simplestmt ~level) s1 ^ "; " ^
+    pretty_expr_option ~level eo ^ "; " ^
+    pretty_option ~f:(pretty_simplestmt ~level) s2 ^ pretty_stmt ~level (Block (p, stmtlist))
 
-and pretty_switch_cond_option (sco : switchcond option) level = (match sco with
-  | None -> ""
-  | Some sc -> pretty_switch_cond sc level
-				    )
+let pretty_package : package -> string = function
+  | Package (_, name) -> "package " ^ name ^ "\n\n"
 
-and pretty_switch_cond (sc : switchcond) level = (match sc with
-  | SwitchCond (_, None, None) -> raise (Problem "Switch Cond lacks both") (* Should have either the expression of the simple stmt *)
-  | SwitchCond (_, None, eo) -> pretty_expr_option eo level
-  | SwitchCond (_, Some stmt, eo) -> pretty_simplestmt ~level stmt ^ " ; " ^ pretty_expr_option eo level
-			    )
+let pretty_topleveldecl ~level : topleveldecl -> string = function
+  | FuncDecl (p, i, vsslo, tpo, sl) ->
+    "func " ^ i ^ "(" ^ pretty_option ~f:(pretty_varspecsimp_list ~level) vsslo ^ ") " ^
+    pretty_tp_option ~level tpo ^ pretty_stmt ~level (Block (p, sl))
+  | Stmt (_, stmt) -> pretty_stmt ~level stmt
 
-and pretty_expr_caseclause_list (ecclist : exprcaseclause list ) level = (match ecclist with
-  | [] -> ""
-  | h :: t -> pretty_expr_caseclause h level ^ pretty_expr_caseclause_list t level
-						)
-
-
-and pretty_expr_caseclause (ecc : exprcaseclause) level = (match ecc with
-  | ExprCaseClause (_, esc, stmtlist) -> pretty_switch_case esc level ^ " : " ^ pretty_stmtlist stmtlist level
-				 )
-
-and pretty_switch_case (esc : exprswitchcase) level = (match esc with
-  | Default _ -> indent level ^  "default"
-  | Case (_, exprlist) -> indent level ^ "case " ^ pretty_exprlist exprlist level
-			     )
-
-(* Pretty printing for statements *)
-and pretty_for (forstmt : forstmt) level = (match forstmt with
-  | InfLoop (p, stmtlist) -> pretty_stmt (Block (p, stmtlist)) level
-  | WhileLoop (p, expr, stmtlist) -> pretty_expr expr level ^ " " ^ pretty_stmt (Block (p, stmtlist)) level
-  | ForLoop (p, s1, expr, s2, stmtlist) -> pretty_simple_option s1 level ^ "; " ^ pretty_expr_option expr level ^ "; " ^ pretty_simple_option s2 level ^ pretty_stmt (Block (p, stmtlist)) level
-			      )
-
-and pretty_print (printstmt : printstmt) level = (match printstmt with
-  | PrintStmt (_, exprlistoption) -> "print(" ^ pretty_exprlist_option exprlistoption level ^ ")\n"
-  | PrintlnStmt (_, exprlistoption) -> "println(" ^ pretty_exprlist_option exprlistoption level ^ ")\n"
-)
+let pretty_prog : prog -> string = function
+  | Prog (_, package, tldl) ->
+    pretty_package package ^
+    String.concat (List.map ~f:(pretty_topleveldecl ~level:Zero) tldl)

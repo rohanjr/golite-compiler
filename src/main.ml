@@ -79,7 +79,7 @@ let () = try
         let weeded_one = Weeder.ForSwitchWeeding.weed p in
         (if out_mode.pp_mode = PP_no_types then
           let oc = open_out (basename ^ ".pretty.go") in
-          fprintf oc "%s" (Pretty.pretty weeded_one));
+          fprintf oc "%s" (Pretty.pretty_prog weeded_one));
         let dump_option = if out_mode.symtbl_dump then
             let dump_fname = basename ^ ".symtab" in
             if Sys.file_exists_exn dump_fname then Sys.remove dump_fname;
@@ -89,7 +89,7 @@ let () = try
         let weeded_two = Weeder.ReturnWeeding.weed weeded_one; weeded_one in
         (if out_mode.pp_mode = PP_with_types then
            let oc' = open_out (basename ^ ".pptype.go") in
-           fprintf oc' "%s" (Pretty.pretty weeded_two));
+           fprintf oc' "%s" (Pretty.pretty_prog weeded_two));
         (if out_mode.c_gen then
            let oc' = open_out (basename ^ ".c") in
            fprintf oc' "%s" (Codegen.gen_prog weeded_two));

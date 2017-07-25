@@ -181,7 +181,7 @@ and gen_printstmt : printstmt -> string =
 and gen_fmt (e : expr) : string = match e with
   Unary (_, _, tpor) | Binary (_, _, _, _, tpor) ->
     begin match !tpor with
-    | None -> raise (InternalError ("Expression " ^ pretty_expr e Zero ^ " has no type during code generation."))
+    | None -> raise (InternalError ("Expression " ^ pretty_expr e ^ " has no type during code generation."))
     | Some t -> 
       let rec f typ = 
       begin 
@@ -197,7 +197,7 @@ and gen_fmt (e : expr) : string = match e with
             | None -> raise (InternalError ("Type alias unresolved"))
             | Some t' -> f t'
           end
-        | _ -> raise (InternalError ("Expression " ^ pretty_expr e Zero ^ " has wrong type for printing."))
+        | _ -> raise (InternalError ("Expression " ^ pretty_expr e ^ " has wrong type for printing."))
       end
     in f t
   end

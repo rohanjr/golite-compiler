@@ -334,7 +334,7 @@ and compare_exp_tp sts (e : expr) (t : tp) : unit =
     else compare_tps sts t t' in
   (match b' with
    | true -> ()
-   | false -> raise (TypeError ("Expression " ^ pretty_expr e Zero ^ " was expected to have type " ^ pretty_tp t ^ " but had type " ^ pretty_tp t' ^ "." )))
+   | false -> raise (TypeError ("Expression " ^ pretty_expr e ^ " was expected to have type " ^ pretty_tp t ^ " but had type " ^ pretty_tp t' ^ "." )))
 
 and compare_tps sts (t : tp) (t' : tp) : bool =
   if t = t' then true
@@ -353,7 +353,7 @@ and check_varspec sts : varspec -> unit = function
       List.iter l
         (fun (i,e) -> let tp = fst (check_expr sts e) in
           if tp = Void then
-            raise (TypeError ("Cannot assign expression " ^ pretty_expr e Zero ^ " of type void to variable."))
+            raise (TypeError ("Cannot assign expression " ^ pretty_expr e ^ " of type void to variable."))
           else add_var sts i tp)
     with Invalid_argument _ -> raise (InternalError "VarSpecNoTp has lists of different lengths")
 (* TODO reverify validity *)
@@ -409,7 +409,7 @@ and check_switchcond sts : switchcond -> tp * bool = function
     Option.iter sso (check_simplestmt sts);
     let (tp, b) = Option.value_map eo ~default:(Bool, false) ~f:(check_expr sts) in
     if comparable sts tp then (tp, b)
-    else raise (TypeError ("Cannot switch on an expression " ^ Option.value_map eo ~default:"INVALID EXPRESSION" ~f:(fun e -> pretty_expr e Zero) ^ " of incomparable type " ^ pretty_tp tp))
+    else raise (TypeError ("Cannot switch on an expression " ^ Option.value_map eo ~default:"INVALID EXPRESSION" ~f:pretty_expr ^ " of incomparable type " ^ pretty_tp tp))
 
 and check_expr_clause sts ((t, b) : tp * bool) (ecc : exprcaseclause) : unit = match ecc with
   | ExprCaseClause (pos1, Case (pos2, el), sl) ->
@@ -434,7 +434,7 @@ and check_switchstmt sts : switchstmt -> unit = function
     let (t, b) = Option.value_map sco ~default:(Bool, false) ~f:(check_switchcond sts) in
     let (t, b) = match first_tp_eccl sts eccl with
       | Some (e, (t', b')) -> (if (compare_tps2 sts (t, b) (t', b)) then (t', b || b')
-                               else raise (DeclError ("Expression " ^ pretty_expr e Zero ^ " is expected to have type " ^ pretty_tp t ^ " but is assigned type " ^ pretty_tp t' ^ ".")))
+                               else raise (DeclError ("Expression " ^ pretty_expr e ^ " is expected to have type " ^ pretty_tp t ^ " but is assigned type " ^ pretty_tp t' ^ ".")))
       | None -> (t, b)
     in
     List.iter eccl (check_expr_clause sts (t, b))
@@ -442,7 +442,7 @@ and check_switchstmt sts : switchstmt -> unit = function
 and check_cond sts (e : expr) : unit =
   let (t, b) = check_expr sts e in
   if compare_tps sts Bool t then ()
-  else raise (TypeError ("Expected condition of type Bool, but received condition \"" ^ pretty_expr e Zero ^ "\" of type " ^ pretty_tp t ^ "."))
+  else raise (TypeError ("Expected condition of type Bool, but received condition \"" ^ pretty_expr e ^ "\" of type " ^ pretty_tp t ^ "."))
 
 and check_forstmt sts : forstmt -> unit = function
   | InfLoop (pos, sl) ->
@@ -474,7 +474,7 @@ and check_printstmt sts : printstmt -> unit = function
                                               "should be in symbol table before checking properties."))
               | Some ti -> check_printable_tps (tp_symb i ti)
              )
-           | _ -> raise (TypeError ("Expression " ^ pretty_expr e Zero ^ " has wrong type for printing."))
+           | _ -> raise (TypeError ("Expression " ^ pretty_expr e ^ " has wrong type for printing."))
          end ) in check_printable_tps (fst (check_expr sts e)) in
     Option.iter ~f:(List.iter ~f:check_printable) elo
 
@@ -486,7 +486,7 @@ and check_expr sts e = match e with
     if (((not b1 || not b2) && compare_tps sts t1 t2) || t1 = t2) then (* TODO: Should we compare the types or should they be equal? *)
       let (t, b) = check_binop sts op (t1, b1) (t2, b2) in tor := Some t; (t, b) (* TODO: modify check_binop *)
     else raise (TypeError ("Tried to perform binary operation " ^ pretty_binop op ^ " on arguments " ^
-                           pretty_expr e1 Zero  ^ " and " ^ pretty_expr e2 Zero ^ " of different types, "
+                           pretty_expr e1 ^ " and " ^ pretty_expr e2 ^ " of different types, "
                            ^ pretty_tp t1 ^ " and " ^ pretty_tp t2 ^ ", at " ^
                            sprintf "%s:%d:%d" pos.pos_fname pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1) ^ "."))
 
@@ -517,7 +517,7 @@ and check_primaryexpr sts : primaryexpr -> tp * bool = function
          | None -> raise (TypeError ("Type of " ^ i ^" not found"))
          | Some typ -> castable (tp_symb i typ)
         )
-      | _ -> raise (TypeError ("Casting expression " ^ pretty_expr e Zero ^ " with type " ^ pretty_tp t ^ " which is not a proper casting type."))
+      | _ -> raise (TypeError ("Casting expression " ^ pretty_expr e ^ " with type " ^ pretty_tp t ^ " which is not a proper casting type."))
     in castable t;
     let (t', b') = check_expr sts e in
     castable (t'); (* TODO: Reverify this, especially b' *)
@@ -540,7 +540,7 @@ and check_primaryexpr sts : primaryexpr -> tp * bool = function
        if compare_tps sts tt t then (tor := Some (TSlice t); (TSlice t, true)) (* TODO: Reverify compare and whether we should have true *)
        else raise (TypeError ("Append to " ^ i ^ " of type Slice<" ^
                               pretty_tp t ^ "> requires expression of type " ^
-                              pretty_tp t ^ " but received " ^ pretty_expr e Zero ^
+                              pretty_tp t ^ " but received " ^ pretty_expr e ^
                               " of type " ^ pretty_tp tt ^ "."))
      | _ -> raise (TypeError ("Tried to append to identifier " ^ i ^ " of non-slice type."))
     )
@@ -550,7 +550,7 @@ and check_funapp sts (p : tp * bool) (pe : primaryexpr) (el : expr list) tor: tp
     (try List.iter2_exn el tl
            (fun e t -> let (tt, b') = check_expr sts e in if compare_tps2 sts (tt, b') (t, b) then () (* TODO: Should we compare the tps? *)
              else raise (TypeError ("Function argument " ^
-                                    pretty_expr e Zero ^ " has type " ^ pretty_tp tt ^
+                                    pretty_expr e ^ " has type " ^ pretty_tp tt ^
                                     " but " ^ pretty_primary pe Zero ^ " expected type " ^
                                     pretty_tp t ^ "."))
            )
@@ -595,7 +595,7 @@ and check_arrayaccess sts (pe : primaryexpr) (e : expr) (tor : tp option ref) : 
     begin match check_expr sts e with
     | (Int, b') -> tor := Some t; (t, b) (* TODO: reverify this*)
     | _ -> raise (TypeError ("Incorrect attempt to access element of an array at non-integer position "
-                             ^ pretty_expr e Zero ^ "."))
+                             ^ pretty_expr e ^ "."))
     end
   | _ -> raise (TypeError ("Tried to index non-array, non-slice expression " ^ pretty_primary pe Zero ^ "."))
 
@@ -606,7 +606,7 @@ and check_slice sts (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (
               ~f:(fun e -> (match check_expr sts e with
                 | (Int, b') -> ()
                 | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
-                                         pretty_expr e Zero ^ ".")))
+                                         pretty_expr e ^ ".")))
               ) in
     f eo1; f eo2; tor := Some (TSlice t); (TSlice t, b)
   | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
@@ -618,7 +618,7 @@ and check_slicecap sts (pe : primaryexpr) (eo : expr option) (e1 : expr) (e2 : e
                                             (match check_expr sts e with
                                              | (Int, b') -> ()
                                              | _ -> raise (TypeError ("Incorrect attempt to create a slice using non-integer index" ^
-                                                                      pretty_expr e Zero ^ "."))
+                                                                      pretty_expr e ^ "."))
                                             ) in
     Option.iter eo f; f e1; f e2; tor := Some (TSlice t); (TSlice t, b)
   | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
