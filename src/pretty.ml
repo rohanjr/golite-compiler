@@ -202,9 +202,9 @@ let rec pretty_stmt ~level : stmt -> string = function
   | Break _ -> "break\n"
   | Continue _ -> "continue\n"
   | Block (_, sl) -> pretty_block ~level sl ^ "\n"
-  | If (_, ifstmt) -> "if " ^ pretty_ifstmt ~level ifstmt
+  | If (_, ifstmt) -> pretty_ifstmt ~level ifstmt
   | Switch (_, switchstmt) -> pretty_switchstmt ~level switchstmt
-  | For (_, forstmt) -> "for " ^ pretty_forstmt ~level forstmt
+  | For (_, forstmt) -> pretty_forstmt ~level forstmt
   | Print (_, printstmt) -> pretty_printstmt ~level printstmt
 
 and pretty_stmtlist ~level (sl: stmt list) : string =
@@ -213,14 +213,14 @@ and pretty_stmtlist ~level (sl: stmt list) : string =
 and pretty_block ~level (sl: stmt list) : string =
   "{\n" ^ pretty_stmtlist ~level:(Succ level) sl ^ indent level ^ "}"
 
-and pretty_ifstmt ~level : ifstmt -> string = function
+and pretty_ifstmt ~level (is : ifstmt) : string = "if " ^ match is with
   | IfOnly (p, ifcond, sl) -> pretty_ifcond ~level ifcond ^ " " ^ pretty_block ~level sl ^ "\n"
   | IfElse (p, ifcond, b1, b2) ->
     pretty_ifcond ~level ifcond ^ " " ^ pretty_block ~level b1 ^
     " else " ^ pretty_block ~level b2 ^ "\n"
   | IfElseIf (p, ifcond, block, ifstmt) ->
     pretty_ifcond ~level ifcond ^ " " ^ pretty_block ~level block ^
-    " else if " ^ pretty_ifstmt ~level ifstmt
+    " else " ^ pretty_ifstmt ~level ifstmt
 
 and pretty_switchstmt ~level : switchstmt -> string = function
   | SwitchStmt (_, sco, eccl) ->
@@ -232,13 +232,14 @@ and pretty_exprcaseclause ~level : exprcaseclause -> string = function
   | ExprCaseClause (_, esc, stmtlist) ->
     pretty_exprswitchcase ~level esc ^ " : " ^ pretty_stmtlist ~level stmtlist
 
-and pretty_forstmt ~level : forstmt -> string = function
+and pretty_forstmt ~level (fs : forstmt) : string = "for " ^ match fs with
   | InfLoop (p, stmtlist) -> pretty_block ~level stmtlist ^ "\n"
   | WhileLoop (p, e, stmtlist) -> pretty_expr ~level e ^ " " ^ pretty_block ~level stmtlist ^ "\n"
   | ForLoop (p, s1, eo, s2, stmtlist) ->
     pretty_option ~f:(pretty_simplestmt ~level) s1 ^ "; " ^
     pretty_expr_option ~level eo ^ "; " ^
-    pretty_option ~f:(pretty_simplestmt ~level) s2 ^ pretty_block ~level stmtlist ^ "\n"
+    pretty_option ~f:(pretty_simplestmt ~level) s2 ^
+    pretty_block ~level stmtlist ^ "\n"
 
 let pretty_package : package -> string = function
   | Package (_, name) -> "package " ^ name ^ "\n\n"
@@ -250,6 +251,6 @@ let pretty_topleveldecl ~level : topleveldecl -> string = function
   | Stmt (_, stmt) -> pretty_stmt ~level stmt
 
 let pretty_prog : prog -> string = function
-  | Prog (_, package, tldl) ->
-    pretty_package package ^
+  | Prog (_, pkg, tldl) ->
+    pretty_package pkg ^
     String.concat (List.map ~f:(pretty_topleveldecl ~level:Zero) tldl)
