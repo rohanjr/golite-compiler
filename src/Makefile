@@ -1,5 +1,5 @@
 all:
-	corebuild -use-menhir main.native
+	rebuild -use-menhir main.native
 
 clean:
 	corebuild -clean

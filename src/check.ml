@@ -405,13 +405,13 @@ and check_ifstmt sts (ifs : ifstmt) : unit =
     STS.close_scope sts pos
 
 and check_switchcond sts : switchcond -> tp * bool = function
-    SwitchCond (pos, sso, eo) ->
+  | SwitchCond (pos, sso, eo) ->
     Option.iter sso (check_simplestmt sts);
     let (tp, b) = Option.value_map eo ~default:(Bool, false) ~f:(check_expr sts) in
     if comparable sts tp then (tp, b)
     else raise (TypeError ("Cannot switch on an expression " ^ Option.value_map eo ~default:"INVALID EXPRESSION" ~f:pretty_expr ^ " of incomparable type " ^ pretty_tp tp))
 
-and check_expr_clause sts ((t, b) : tp * bool) (ecc : exprcaseclause) : unit = match ecc with
+and check_expr_clause sts ((t, b) : tp * bool) : exprcaseclause -> unit = function
   | ExprCaseClause (pos1, Case (pos2, el), sl) ->
     List.iter el (check_switch_expr sts t);
     List.iter sl (check_stmt sts)
@@ -430,14 +430,14 @@ and first_tp_eccl sts : exprcaseclause list -> (expr * (tp * bool)) option = fun
   | h :: tl -> first_tp_eccl sts tl
 
 and check_switchstmt sts : switchstmt -> unit = function
-    SwitchStmt (pos, sco, eccl) ->
-    let (t, b) = Option.value_map sco ~default:(Bool, false) ~f:(check_switchcond sts) in
-    let (t, b) = match first_tp_eccl sts eccl with
-      | Some (e, (t', b')) -> (if (compare_tps2 sts (t, b) (t', b)) then (t', b || b')
-                               else raise (DeclError ("Expression " ^ pretty_expr e ^ " is expected to have type " ^ pretty_tp t ^ " but is assigned type " ^ pretty_tp t' ^ ".")))
-      | None -> (t, b)
-    in
-    List.iter eccl (check_expr_clause sts (t, b))
+  | SwitchStmt (pos, sco, eccl) ->
+      let (t, b) = Option.value_map sco ~default:(Bool, false) ~f:(check_switchcond sts) in
+      let (t, b) = match first_tp_eccl sts eccl with
+        | None -> (t, b)
+        | Some (e, (t', b')) ->
+            (if (compare_tps2 sts (t, b) (t', b)) then (t', b || b')
+             else raise (DeclError ("Expression " ^ pretty_expr e ^ " is expected to have type " ^ pretty_tp t ^ " but is assigned type " ^ pretty_tp t' ^ "."))) in
+      List.iter eccl (check_expr_clause sts (t, b))
 
 and check_cond sts (e : expr) : unit =
   let (t, b) = check_expr sts e in
@@ -478,17 +478,24 @@ and check_printstmt sts : printstmt -> unit = function
          end ) in check_printable_tps (fst (check_expr sts e)) in
     Option.iter ~f:(List.iter ~f:check_printable) elo
 
-and check_expr sts e = match e with
-  | Unary (pos, ue, tor) ->  let (t, b) = check_unaryexpr sts ue in tor := Some t; (t,b)
+and check_expr sts : expr -> tp * bool = function
+  | Unary (pos, ue, tor) ->
+      let (t, b) = check_unaryexpr sts ue in
+      tor := Some t;
+      (t,b)
   | Binary (pos, op, e1, e2, tor) ->
     let (t1, b1) = check_expr sts e1 in
     let (t2, b2) = check_expr sts e2 in
-    if (((not b1 || not b2) && compare_tps sts t1 t2) || t1 = t2) then (* TODO: Should we compare the types or should they be equal? *)
-      let (t, b) = check_binop sts op (t1, b1) (t2, b2) in tor := Some t; (t, b) (* TODO: modify check_binop *)
-    else raise (TypeError ("Tried to perform binary operation " ^ pretty_binop op ^ " on arguments " ^
-                           pretty_expr e1 ^ " and " ^ pretty_expr e2 ^ " of different types, "
-                           ^ pretty_tp t1 ^ " and " ^ pretty_tp t2 ^ ", at " ^
-                           sprintf "%s:%d:%d" pos.pos_fname pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1) ^ "."))
+    if ((not b1 || not b2) && compare_tps sts t1 t2) || t1 = t2 then
+      (* TODO: Should we compare the types or should they be equal? *)
+      let (t, b) = check_binop sts op (t1, b1) (t2, b2) in
+      tor := Some t;
+      (t, b) (* TODO: modify check_binop *)
+    else
+      raise (TypeError ("Tried to perform binary operation " ^ pretty_binop op ^ " on arguments " ^
+                        pretty_expr e1 ^ " and " ^ pretty_expr e2 ^ " of different types, " ^
+                        pretty_tp t1 ^ " and " ^ pretty_tp t2 ^ ", at " ^
+                        sprintf "%s:%d:%d" pos.pos_fname pos.pos_lnum (pos.pos_cnum - pos.pos_bol + 1) ^ "."))
 
 
 and check_unaryexpr sts : unaryexpr -> (tp * bool) = function
@@ -682,7 +689,7 @@ and check_assignop sts (aop : assignop) (t1 : tp * bool)  (t2 : tp * bool) : uni
                                                    if compare_tps t t1 then ()
                                                    else raise (TypeError ("Assign operation " ^ pretty_assop aop ^ " has expressions of type " ^ pretty_tp t1 ^ " and " ^ pretty_tp t2 ^ "."))*)
 
-and check_id sts : id -> tp = fun name ->
+and check_id sts (name : id) : tp =
   match STS.lookup sts name with
   | None -> raise (TypeError ("Identifier " ^ name ^ " undeclared."))
   | Some ti -> match ti with
@@ -690,7 +697,7 @@ and check_id sts : id -> tp = fun name ->
     | Fn t -> t
     | _ -> raise (TypeError ("1.A Var or Fn was expected, but " ^ name ^ " was received, which is a type."))
 
-and check_id' sts : id -> tp_or_id = fun name ->
+and check_id' sts (name : id) : tp_or_id =
   match STS.lookup sts name with
   | None -> raise (TypeError ("Identifier " ^ name ^ " undeclared."))
   | Some ti -> ti
