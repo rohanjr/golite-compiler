@@ -528,7 +528,7 @@ and check_primaryexpr sts : primaryexpr -> tp * bool = function
 
        | Tp t -> (match el with
          | [e] -> check_primaryexpr sts (Cast (pos, t, e, tor))(* Here we have type casting rather than function application *)
-         | _ -> raise (TypeError ("Expression " ^ pretty_primary pe Zero ^
+         | _ -> raise (TypeError ("Expression " ^ pretty_primaryexpr pe ^
                                   " is not a function and cannot be applied.")))
        | _ -> check_funapp sts (check_primaryexpr sts pe) pe el tor)
      | _ -> check_funapp sts (check_primaryexpr sts pe) pe el tor)
@@ -551,13 +551,13 @@ and check_funapp sts (p : tp * bool) (pe : primaryexpr) (el : expr list) tor: tp
            (fun e t -> let (tt, b') = check_expr sts e in if compare_tps2 sts (tt, b') (t, b) then () (* TODO: Should we compare the tps? *)
              else raise (TypeError ("Function argument " ^
                                     pretty_expr e ^ " has type " ^ pretty_tp tt ^
-                                    " but " ^ pretty_primary pe Zero ^ " expected type " ^
+                                    " but " ^ pretty_primaryexpr pe ^ " expected type " ^
                                     pretty_tp t ^ "."))
            )
      with Invalid_argument _ ->
-       raise (TypeError ("Wrong number of arguments to " ^ pretty_primary pe Zero ^ "."))
+       raise (TypeError ("Wrong number of arguments to " ^ pretty_primaryexpr pe ^ "."))
     ); tor := Some rt; (rt, true) (* TODO: Should we consider function application as a variable for type aliases? *)
-  | _ -> raise (TypeError ("Expression " ^ pretty_primary pe Zero ^
+  | _ -> raise (TypeError ("Expression " ^ pretty_primaryexpr pe ^
                            " is not a function and cannot be applied."))
 
 and check_operand sts : operand -> (tp * bool) = function
@@ -583,10 +583,10 @@ and check_fieldsel sts (pe : primaryexpr) (i : id) (tor : tp option ref) : tp * 
   let rec inner t = (match t with
     | TStruct vssl -> let t' = struct_lookup i vssl in tor := Some t'; t'
     | TypeVar (i, tor) -> tor := base_tp sts (TypeVar (i, tor)); let tio = STS.lookup sts i in (match tio with
-      | None -> raise (TypeError ("Primary Expression " ^ pretty_primary pe Zero ^ " should have type " ^ i ^ ", but type " ^ i ^ " is not in the current scope."))
+      | None -> raise (TypeError ("Primary Expression " ^ pretty_primaryexpr pe ^ " should have type " ^ i ^ ", but type " ^ i ^ " is not in the current scope."))
       | Some ti -> let t = tp_symb i ti in inner t)
     | _ -> raise (TypeError ("Tried to access field of non-struct expression "
-                             ^ pretty_primary pe Zero ^ ".")))
+                             ^ pretty_primaryexpr pe ^ ".")))
   in (inner t, b) (* TODO: Reverify whether it should be b *)
 
 and check_arrayaccess sts (pe : primaryexpr) (e : expr) (tor : tp option ref) : tp * bool =
@@ -597,7 +597,7 @@ and check_arrayaccess sts (pe : primaryexpr) (e : expr) (tor : tp option ref) : 
     | _ -> raise (TypeError ("Incorrect attempt to access element of an array at non-integer position "
                              ^ pretty_expr e ^ "."))
     end
-  | _ -> raise (TypeError ("Tried to index non-array, non-slice expression " ^ pretty_primary pe Zero ^ "."))
+  | _ -> raise (TypeError ("Tried to index non-array, non-slice expression " ^ pretty_primaryexpr pe ^ "."))
 
 and check_slice sts (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (tor : tp option ref) : tp * bool =
   let (t, b) = check_primaryexpr sts pe in match base_tp sts t with
@@ -610,7 +610,7 @@ and check_slice sts (pe : primaryexpr) (eo1 : expr option) (eo2 : expr option) (
               ) in
     f eo1; f eo2; tor := Some (TSlice t); (TSlice t, b)
   | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
-                           ^ pretty_primary pe Zero ^ "."))
+                           ^ pretty_primaryexpr pe ^ "."))
 
 and check_slicecap sts (pe : primaryexpr) (eo : expr option) (e1 : expr) (e2 : expr) (tor : tp option ref) : tp * bool =
   let (t, b) = check_primaryexpr sts pe in match base_tp sts t with
@@ -622,7 +622,7 @@ and check_slicecap sts (pe : primaryexpr) (eo : expr option) (e1 : expr) (e2 : e
                                             ) in
     Option.iter eo f; f e1; f e2; tor := Some (TSlice t); (TSlice t, b)
   | _ -> raise (TypeError ("Incorrect attempt to slice a non-array, non-slice expression "
-                           ^ pretty_primary pe Zero ^ "."))
+                           ^ pretty_primaryexpr pe ^ "."))
 
 and check_uop sts (op : uop) ((t, b) : tp * bool) : tp * bool = match op with
   | UPlus | UMinus ->

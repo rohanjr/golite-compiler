@@ -9,15 +9,12 @@
  * Shawn Otis 
  *)
 
-(* TODO Change order of parameters in pretty functions:
-  * better to have level before node to print
-  * Also use concatmap instead of pattern matching everywhere.
-  * And using "nat" is kind of strange. *)
-
 open Core.Std
 
 exception Problem of string
 open Ast
+
+let indentation = "   "
 
 type nat =
   | Zero
@@ -25,11 +22,11 @@ type nat =
 
 let rec indent : nat -> string = function
   | Zero -> ""
-  | Succ level -> "   " ^ indent level
+  | Succ level -> indentation ^ indent level
 
 let pretty_option ~(f : 'a -> string) : 'a option -> string = Option.value_map ~default:"" ~f
 
-let pretty_varlist : id list -> string = function
+let pretty_idlist : id list -> string = function
   | [] -> raise (Problem "Varlists should be non-empty.")
   | l -> String.concat ~sep:", " l
 
@@ -54,7 +51,7 @@ and pretty_struct ~level (vssl : varspecsimp list) : string =
   String.concat (List.map ~f:(fun vss -> indent level ^ pretty_varspecsimp vss ~level ^ "\n") vssl)
 
 and pretty_varspecsimp ~level : varspecsimp -> string = function
-  | (varlist, tp) -> pretty_varlist varlist ^ " " ^ pretty_tp tp ~level
+  | (idl, tp) -> pretty_idlist idl ^ " " ^ pretty_tp tp ~level
 
 let pretty_tp_option ~level : tp option -> string = pretty_option ~f:(fun t -> pretty_tp t ~level ^ " ")
 
@@ -91,7 +88,7 @@ let pretty_uop : uop -> string = function
   | UBitXor -> "^"
 
 let rec pretty_expr ?(level=Zero) : expr -> string = function
-  | Unary (_, u, tpor) -> pretty_unary u level
+  | Unary (_, u, tpor) -> pretty_unary ~level u
   | Binary (_, op, e1, e2, tpor) ->
     pretty_expr ~level e1 ^ " " ^ pretty_binop op ^ " " ^
     pretty_expr ~level e2 ^ pretty_comment_tp !tpor
@@ -101,22 +98,22 @@ and pretty_expr_option ~level : expr option -> string = pretty_option ~f:(pretty
 and pretty_exprlist ~level (el: expr list) : string =
   String.concat ~sep:", " (List.map ~f:(pretty_expr ~level) el)
 
-and pretty_unary (u : unaryexpr) level = match u with
-  | Primary (_, prim, tpor) -> pretty_primary prim level
+and pretty_unary ~level : unaryexpr -> string = function
+  | Primary (_, pe, tpor) -> pretty_primaryexpr ~level pe
   | UnaryOp (_, op, u, tpor) ->
-    pretty_uop op ^ pretty_unary u level ^ pretty_comment_tp !tpor
+    pretty_uop op ^ pretty_unary ~level u ^ pretty_comment_tp !tpor
 
-and pretty_primary (prim : primaryexpr) level = match prim with
-  | Operand (_, oper, tpor) -> pretty_operand oper level
-  | Sel (_, prim, id, tpor) -> pretty_primary prim level ^ "." ^ id ^ pretty_comment_tp !tpor
-  | ArrAccess (_, prim, e, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr ~level e ^ "]" ^ pretty_comment_tp !tpor
-  | Slice (_, prim, e1op, e2op, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option ~level e1op ^ " : " ^ pretty_expr_option ~level e2op ^ "]" ^ pretty_comment_tp !tpor
-  | SliceCap (_, prim, eop, e1, e2, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr_option ~level eop ^ " : " ^ pretty_expr ~level e1 ^ " : " ^ pretty_expr ~level e2 ^ "]" ^ pretty_comment_tp !tpor
-  | FunApp (_, prim, el, tpor) -> pretty_primary prim level ^ "(" ^ pretty_exprlist ~level el ^ ")" ^ pretty_comment_tp !tpor
+and pretty_primaryexpr ?(level=Zero) : primaryexpr -> string = function
+  | Operand (_, oper, tpor) -> pretty_operand ~level oper
+  | Sel (_, prim, id, tpor) -> pretty_primaryexpr ~level prim ^ "." ^ id ^ pretty_comment_tp !tpor
+  | ArrAccess (_, prim, e, tpor) -> pretty_primaryexpr ~level prim ^ "[" ^ pretty_expr ~level e ^ "]" ^ pretty_comment_tp !tpor
+  | Slice (_, prim, e1op, e2op, tpor) -> pretty_primaryexpr ~level prim ^ "[" ^ pretty_expr_option ~level e1op ^ " : " ^ pretty_expr_option ~level e2op ^ "]" ^ pretty_comment_tp !tpor
+  | SliceCap (_, prim, eop, e1, e2, tpor) -> pretty_primaryexpr ~level prim ^ "[" ^ pretty_expr_option ~level eop ^ " : " ^ pretty_expr ~level e1 ^ " : " ^ pretty_expr ~level e2 ^ "]" ^ pretty_comment_tp !tpor
+  | FunApp (_, prim, el, tpor) -> pretty_primaryexpr ~level prim ^ "(" ^ pretty_exprlist ~level el ^ ")" ^ pretty_comment_tp !tpor
   | Append (_, x, e, tpor) -> "append" ^ "(" ^ x ^ ", " ^ pretty_expr ~level e ^ ")" ^ pretty_comment_tp !tpor
   | Cast (_, tp, e, tpor) -> pretty_tp tp ~level ^ "(" ^ pretty_expr ~level e ^ ")" ^ pretty_comment_tp !tpor
 
-and pretty_operand (oper : operand) level = match oper with
+and pretty_operand ~level : operand -> string = function
   | Parens (_, e, tpor) -> "(" ^ pretty_expr ~level e ^ ")"  ^ pretty_comment_tp !tpor
   | Var (_, id, tpor) -> id ^ pretty_comment_tp !tpor
   | IntLit (_, i, tpor) -> string_of_int i ^ pretty_comment_tp !tpor
@@ -125,12 +122,12 @@ and pretty_operand (oper : operand) level = match oper with
   | StrLit (_, s, tpor) -> s ^ pretty_comment_tp !tpor
 
 let pretty_lvalue ~level : lvalue -> string = function
-  | LSel (_, prim, id, tpor) -> pretty_primary prim level ^ "." ^ id ^ pretty_comment_tp !tpor
-  | LArrAccess (_, prim, e, tpor) -> pretty_primary prim level ^ "[" ^ pretty_expr ~level e ^ "]" ^ pretty_comment_tp !tpor
+  | LSel (_, prim, id, tpor) -> pretty_primaryexpr ~level prim ^ "." ^ id ^ pretty_comment_tp !tpor
+  | LArrAccess (_, prim, e, tpor) -> pretty_primaryexpr ~level prim ^ "[" ^ pretty_expr ~level e ^ "]" ^ pretty_comment_tp !tpor
   | LSlice (_, prim, eop1, eop2, tpor) ->
-    pretty_primary prim level ^ "[" ^ pretty_expr_option ~level eop1 ^ " : " ^ pretty_expr_option ~level eop2 ^ "]" ^ pretty_comment_tp !tpor
+    pretty_primaryexpr ~level prim ^ "[" ^ pretty_expr_option ~level eop1 ^ " : " ^ pretty_expr_option ~level eop2 ^ "]" ^ pretty_comment_tp !tpor
   | LSliceCap (_, prim, eop, e1, e2, tpor) ->
-    pretty_primary prim level ^ "[" ^ pretty_expr_option ~level eop ^ " : " ^ pretty_expr ~level e1 ^ " : " ^ pretty_expr ~level e2 ^ "]" ^ pretty_comment_tp !tpor
+    pretty_primaryexpr ~level prim ^ "[" ^ pretty_expr_option ~level eop ^ " : " ^ pretty_expr ~level e1 ^ " : " ^ pretty_expr ~level e2 ^ "]" ^ pretty_comment_tp !tpor
 
 let pretty_lvaluelist ~level : lvalue list -> string = function
   | [] -> raise (Problem " Lvaluelist should not be empty.")
@@ -155,13 +152,13 @@ let pretty_simplestmt ~level : simplestmt -> string = function
   | Dec (_, e) -> pretty_expr ~level e ^ "--"
   | AssignEquals (_, lvl, el) -> pretty_lvaluelist ~level lvl ^ " = " ^ pretty_exprlist ~level el
   | Assign (_, assop, lv, e) -> pretty_lvalue ~level lv ^ " " ^ pretty_assignop assop ^ " " ^ pretty_expr ~level e
-  | AssignVarEquals (_, vl, el) -> pretty_varlist vl ^ " = " ^ pretty_exprlist ~level el
+  | AssignVarEquals (_, idl, el) -> pretty_idlist idl ^ " = " ^ pretty_exprlist ~level el
   | AssignVar (_, assop, v, e) -> v ^ " " ^ pretty_assignop assop ^ " " ^ pretty_expr ~level e
-  | ShortVarDecl (_, idlist, el, dlor) -> pretty_varlist idlist ^ " := " ^ pretty_exprlist ~level el
+  | ShortVarDecl (_, idl, el, dlor) -> pretty_idlist idl ^ " := " ^ pretty_exprlist ~level el
 
 let pretty_varspec ~level : varspec -> string = function
   | VarSpecTp (_, vss, elo) -> pretty_varspecsimp ~level vss ^ pretty_option ~f:(fun el -> " = " ^ pretty_exprlist ~level el) elo ^ "\n"
-  | VarSpecNoTp (_, idl, el) -> pretty_varlist idl ^ " = " ^ pretty_exprlist ~level el ^ "\n"
+  | VarSpecNoTp (_, idl, el) -> pretty_idlist idl ^ " = " ^ pretty_exprlist ~level el ^ "\n"
 
 let pretty_typespec ~level : typespec -> string = function
   | TpSpec (_, t, tp) -> t ^ " " ^ pretty_tp ~level tp ^ "\n"
@@ -174,8 +171,9 @@ let pretty_typespecsemi_list (tsl : typespec list) level =
 
 let pretty_declstmt ~level : declstmt -> string = function
   | VarDecls (_, [varspec]) -> "var " ^ pretty_varspec ~level varspec
+  | VarDecls (_, vsl) ->
+    "var (\n" ^ pretty_varspecsemi_list vsl (Succ level) ^ indent level ^ ")\n"
   | TypeDecls (_, [typespec]) -> "type " ^ pretty_typespec ~level typespec
-  | VarDecls (_, vslist) -> "var (\n"  ^ pretty_varspecsemi_list vslist (Succ level) ^ indent level ^ ")\n"
   | TypeDecls (_, tsl) -> "type ( \n" ^ pretty_typespecsemi_list tsl (Succ level) ^ indent level ^ ")\n"
 
 let pretty_ifcond ~level : ifcond -> string = function
