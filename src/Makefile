@@ -1,7 +1,7 @@
 all:
-	rebuild -use-menhir main.native
+	reason-corebuild -use-menhir main.native
 
 clean:
-	corebuild -clean
+	reason-corebuild -clean
 
 .PHONY: all clean
